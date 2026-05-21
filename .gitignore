@@ -1,0 +1,58 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.next/
+.expo/
+.turbo/
+coverage/
+
+# Go
+bin/
+*.test
+*.out
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+htmlcov/
+
+# AI/video processing artifacts
+outputs/
+artifacts/
+tmp/
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.m4a
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
