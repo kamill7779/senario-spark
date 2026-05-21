@@ -5,6 +5,9 @@ Thumbs.db
 .vscode/
 *.swp
 
+# Git worktrees
+.worktrees/
+
 # Environment / secrets
 .env
 .env.*
@@ -55,4 +58,3 @@ tmp/
 *.db
 *.sqlite
 *.sqlite3
-

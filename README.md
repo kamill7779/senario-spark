@@ -7,6 +7,7 @@ SenarioSpark is a short-drama interaction project. The repo is organized as a mo
 ```text
 frontend/
   mobile-app/                 Mobile client.
+  content-workbench/          Internal content operations and highlight review console.
 
 backend/
   services/                   Go microservices, to be defined as boundaries settle.

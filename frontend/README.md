@@ -1,4 +1,6 @@
 # Frontend
 
-Mobile client code lives here. For MVP, this layer should consume lightweight highlight manifests and render low-friction interaction effects without depending on backend-internal data structures.
+Frontend applications live here.
 
+- `mobile-app`: user-facing mobile client for playback and low-friction interactions.
+- `content-workbench`: internal content operations console for series creation, episode management, highlight review, and enablement controls.
