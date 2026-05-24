@@ -61,6 +61,7 @@ class StepOutput:
 
 @dataclass
 class AnalysisContext:
+    series_id: str
     episode_id: str
     video_input: str
     settings: Settings
@@ -86,20 +87,23 @@ class AnalysisContext:
     highlight_events: list[HighlightEvent] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        safe_episode = self.episode_id.replace("/", "_")
-        self.job_id = f"job_{safe_episode}_analysis_v0_1"
-        self.video_id = f"vid_{safe_episode}"
-        self.audio_id = f"audio_{safe_episode}"
-        self.package_id = f"upkg_{safe_episode}_v1"
-        self.script_id = f"script_{safe_episode}_v1"
-        self.output_dir = self.settings.output_root / safe_episode
+        safe_series = _safe_path_part(self.series_id)
+        safe_episode = _safe_path_part(self.episode_id)
+        id_prefix = f"{safe_series}_{safe_episode}"
+        self.job_id = f"job_{id_prefix}_analysis_v0_1"
+        self.video_id = f"vid_{id_prefix}"
+        self.audio_id = f"audio_{id_prefix}"
+        self.package_id = f"upkg_{id_prefix}_v1"
+        self.script_id = f"script_{id_prefix}_v1"
+        self.output_dir = self.settings.output_root / safe_series / safe_episode
         self.video_path = self._initial_video_path()
         self.audio_path = self.output_dir / "audio.wav"
 
     def _initial_video_path(self) -> Path:
         if self.video_input.startswith(("http://", "https://")):
             suffix = Path(self.video_input.split("?")[0]).suffix or ".mp4"
-            return self.settings.output_root / self.episode_id / f"input{suffix}"
+            assert self.output_dir is not None
+            return self.output_dir / f"input{suffix}"
         return Path(self.video_input)
 
 
@@ -110,13 +114,19 @@ class AnalysisWorkflow:
 
     def run(
         self,
+        series_id: str,
         episode_id: str,
         video_input: str,
         resume_from: str | None = None,
     ) -> AnalysisContext:
         if resume_from and resume_from not in STEP_NAMES:
             raise ValueError(f"unknown resume step {resume_from}; valid steps: {', '.join(STEP_NAMES)}")
-        context = AnalysisContext(episode_id=episode_id, video_input=video_input, settings=self.settings)
+        context = AnalysisContext(
+            series_id=series_id,
+            episode_id=episode_id,
+            video_input=video_input,
+            settings=self.settings,
+        )
         context.output_dir.mkdir(parents=True, exist_ok=True)
         if resume_from:
             self._load_existing_context(context)
@@ -188,6 +198,7 @@ class AnalysisWorkflow:
             {
                 "step_run_id": step_run_id,
                 "job_id": context.job_id,
+                "series_id": context.series_id,
                 "episode_id": context.episode_id,
                 "step_name": step_name,
                 "status": "processing",
@@ -212,6 +223,7 @@ class AnalysisWorkflow:
                 {
                     "step_run_id": step_run_id,
                     "job_id": context.job_id,
+                    "series_id": context.series_id,
                     "episode_id": context.episode_id,
                     "step_name": step_name,
                     "status": "failed",
@@ -235,6 +247,7 @@ class AnalysisWorkflow:
             {
                 "step_run_id": step_run_id,
                 "job_id": context.job_id,
+                "series_id": context.series_id,
                 "episode_id": context.episode_id,
                 "step_name": step_name,
                 "status": "completed",
@@ -256,13 +269,18 @@ class AnalysisWorkflow:
         self.repository.save_analysis_job(
             {
                 "job_id": context.job_id,
+                "series_id": context.series_id,
                 "episode_id": context.episode_id,
                 "video_id": context.video_id,
                 "status": "processing",
                 "pipeline_version": self.settings.pipeline_version,
                 "taxonomy_version": self.settings.taxonomy_version,
                 "video_source": context.video_input,
-                "input_payload": {"video": context.video_input},
+                "input_payload": {
+                    "series_id": context.series_id,
+                    "episode_id": context.episode_id,
+                    "video": context.video_input,
+                },
                 "output_dir": str(context.output_dir),
                 "error": None,
             }
@@ -273,7 +291,12 @@ class AnalysisWorkflow:
         if context.video_input.startswith(("http://", "https://")):
             _download_video(context.video_input, context.video_path)
         assert context.video_path is not None
-        context.video_asset = probe_video(context.video_path, context.episode_id, context.video_id)
+        context.video_asset = probe_video(
+            context.video_path,
+            context.series_id,
+            context.episode_id,
+            context.video_id,
+        )
         self.repository.save_video_asset(context.video_asset)
         return StepOutput([context.video_asset.video_id])
 
@@ -284,6 +307,7 @@ class AnalysisWorkflow:
         context.audio_asset = AudioAsset(
             audio_id=context.audio_id,
             video_id=context.video_id,
+            series_id=context.series_id,
             episode_id=context.episode_id,
             storage_uri=str(context.audio_path),
             sample_rate=16000,
@@ -321,6 +345,7 @@ class AnalysisWorkflow:
             ]
         context.transcript_chunks = transcribe_audio_chunks(
             self.settings,
+            context.series_id,
             context.episode_id,
             context.audio_id,
             context.audio_chunk_paths,
@@ -334,6 +359,7 @@ class AnalysisWorkflow:
         self._ensure_video_asset(context)
         context.video_segments = plan_video_segments(
             context.video_id,
+            context.series_id,
             context.episode_id,
             context.video_asset.duration_ms,
             self.settings.video_segment_ms,
@@ -378,6 +404,7 @@ class AnalysisWorkflow:
         self._ensure_segment_understandings(context)
         context.understanding_package = UnderstandingPackage(
             package_id=context.package_id,
+            series_id=context.series_id,
             episode_id=context.episode_id,
             video_id=context.video_id,
             pipeline_version=self.settings.pipeline_version,
@@ -399,6 +426,7 @@ class AnalysisWorkflow:
         self._ensure_segment_understandings(context)
         context.observed_script = generate_observed_script(
             self.settings,
+            context.series_id,
             context.episode_id,
             context.video_segments,
             context.transcript_chunks,
@@ -451,18 +479,22 @@ class AnalysisWorkflow:
             context.audio_asset = AudioAsset.model_validate(audio_asset)
         context.transcript_chunks = [
             TranscriptChunk.model_validate(row)
-            for row in self.repository.list_transcript_chunks(context.episode_id)
+            for row in self.repository.list_transcript_chunks(context.series_id, context.episode_id)
         ]
         context.video_segments = [
             VideoSegment.model_validate(row)
-            for row in self.repository.list_video_segments(context.episode_id)
+            for row in self.repository.list_video_segments(context.series_id, context.episode_id)
         ]
         context.keyframes = [
-            Keyframe.model_validate(row) for row in self.repository.list_keyframes(context.episode_id)
+            Keyframe.model_validate(row)
+            for row in self.repository.list_keyframes(context.series_id, context.episode_id)
         ]
         context.segment_understandings = [
             SegmentUnderstanding.model_validate(row)
-            for row in self.repository.list_segment_understandings(context.episode_id)
+            for row in self.repository.list_segment_understandings(
+                context.series_id,
+                context.episode_id,
+            )
         ]
         package = self.repository.get_understanding_package(context.package_id)
         if package:
@@ -489,7 +521,7 @@ class AnalysisWorkflow:
         if not context.transcript_chunks:
             context.transcript_chunks = [
                 TranscriptChunk.model_validate(row)
-                for row in self.repository.list_transcript_chunks(context.episode_id)
+                for row in self.repository.list_transcript_chunks(context.series_id, context.episode_id)
             ]
         if not context.transcript_chunks:
             raise RuntimeError("transcript_chunks are not available; rerun asr_transcription")
@@ -498,7 +530,7 @@ class AnalysisWorkflow:
         if not context.video_segments:
             context.video_segments = [
                 VideoSegment.model_validate(row)
-                for row in self.repository.list_video_segments(context.episode_id)
+                for row in self.repository.list_video_segments(context.series_id, context.episode_id)
             ]
         if not context.video_segments:
             raise RuntimeError("video_segments are not available; rerun create_video_segments")
@@ -506,7 +538,8 @@ class AnalysisWorkflow:
     def _ensure_keyframes(self, context: AnalysisContext) -> None:
         if not context.keyframes:
             context.keyframes = [
-                Keyframe.model_validate(row) for row in self.repository.list_keyframes(context.episode_id)
+                Keyframe.model_validate(row)
+                for row in self.repository.list_keyframes(context.series_id, context.episode_id)
             ]
         if not context.keyframes:
             raise RuntimeError("keyframes are not available; rerun extract_keyframes")
@@ -515,7 +548,10 @@ class AnalysisWorkflow:
         if not context.segment_understandings:
             context.segment_understandings = [
                 SegmentUnderstanding.model_validate(row)
-                for row in self.repository.list_segment_understandings(context.episode_id)
+                for row in self.repository.list_segment_understandings(
+                    context.series_id,
+                    context.episode_id,
+                )
             ]
         if not context.segment_understandings:
             raise RuntimeError("segment_understandings are not available; rerun segment_understanding")
@@ -569,3 +605,10 @@ def _write_json(path: Path, payload) -> None:
 
 def _mysql_datetime() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_path_part(value: str) -> str:
+    safe = value.replace("/", "_").replace("\\", "_").strip()
+    if not safe:
+        raise ValueError("series_id and episode_id cannot be empty")
+    return safe

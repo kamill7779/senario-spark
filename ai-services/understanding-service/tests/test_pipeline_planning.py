@@ -13,12 +13,22 @@ def test_plan_audio_chunks_covers_duration_with_tail_chunk():
 
 
 def test_plan_video_segments_sets_midpoint_keyframe_id():
-    segments = plan_video_segments("vid_003", "ep_003", duration_ms=17000, segment_ms=8000)
+    segments = plan_video_segments(
+        "vid_series_001_ep_003",
+        "series_001",
+        "ep_003",
+        duration_ms=17000,
+        segment_ms=8000,
+    )
 
-    assert [segment.segment_id for segment in segments] == ["seg_000", "seg_001", "seg_002"]
+    assert [segment.segment_id for segment in segments] == [
+        "seg_series_001_ep_003_000",
+        "seg_series_001_ep_003_001",
+        "seg_series_001_ep_003_002",
+    ]
     assert segments[-1].start_ms == 16000
     assert segments[-1].end_ms == 17000
-    assert segments[0].keyframe_ids == ["kf_seg_000_4000"]
+    assert segments[0].keyframe_ids == ["kf_seg_series_001_ep_003_000_4000"]
 
 
 def test_fallback_script_preserves_segment_sources():
@@ -26,6 +36,7 @@ def test_fallback_script_preserves_segment_sources():
         VideoSegment(
             segment_id="seg_000",
             video_id="vid_003",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=0,
             end_ms=8000,
@@ -36,6 +47,7 @@ def test_fallback_script_preserves_segment_sources():
         TranscriptChunk(
             chunk_id="aud_000",
             audio_id="audio_ep_003",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=0,
             end_ms=8000,
@@ -51,6 +63,7 @@ def test_fallback_script_preserves_segment_sources():
         SegmentUnderstanding(
             segment_understanding_id="su_seg_000",
             segment_id="seg_000",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=0,
             end_ms=8000,
@@ -65,7 +78,7 @@ def test_fallback_script_preserves_segment_sources():
         )
     ]
 
-    script = build_fallback_observed_script("ep_003", segments, transcript_chunks, understandings)
+    script = build_fallback_observed_script("series_001", "ep_003", segments, transcript_chunks, understandings)
 
     assert script.scenes[0].source_segment_ids == ["seg_000"]
     assert script.scenes[0].beats[0].source_segment_ids == ["seg_000"]
@@ -74,11 +87,13 @@ def test_fallback_script_preserves_segment_sources():
 
 def test_rule_based_highlight_extractor_submits_traceable_event():
     script = build_fallback_observed_script(
+        "series_001",
         "ep_003",
         [
             VideoSegment(
                 segment_id="seg_000",
                 video_id="vid_003",
+                series_id="series_001",
                 episode_id="ep_003",
                 start_ms=0,
                 end_ms=8000,
@@ -89,6 +104,7 @@ def test_rule_based_highlight_extractor_submits_traceable_event():
             TranscriptChunk(
                 chunk_id="aud_000",
                 audio_id="audio_ep_003",
+                series_id="series_001",
                 episode_id="ep_003",
                 start_ms=0,
                 end_ms=8000,
@@ -109,6 +125,7 @@ def test_rule_based_highlight_extractor_submits_traceable_event():
             SegmentUnderstanding(
                 segment_understanding_id="su_seg_000",
                 segment_id="seg_000",
+                series_id="series_001",
                 episode_id="ep_003",
                 start_ms=0,
                 end_ms=8000,
@@ -129,6 +146,7 @@ def test_rule_based_highlight_extractor_submits_traceable_event():
             VideoSegment(
                 segment_id="seg_000",
                 video_id="vid_003",
+                series_id="series_001",
                 episode_id="ep_003",
                 start_ms=0,
                 end_ms=8000,
@@ -139,6 +157,7 @@ def test_rule_based_highlight_extractor_submits_traceable_event():
             TranscriptChunk(
                 chunk_id="aud_000",
                 audio_id="audio_ep_003",
+                series_id="series_001",
                 episode_id="ep_003",
                 start_ms=0,
                 end_ms=8000,
@@ -159,6 +178,7 @@ def test_rule_based_highlight_extractor_submits_traceable_event():
             Keyframe(
                 keyframe_id="kf_seg_000_4000",
                 segment_id="seg_000",
+                series_id="series_001",
                 episode_id="ep_003",
                 timestamp_ms=4000,
                 image_uri="outputs/ep_003/keyframes/kf_seg_000_4000.jpg",

@@ -10,6 +10,7 @@ from app.workflow import AnalysisWorkflow
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SenarioSpark MVP video analysis.")
+    parser.add_argument("--series-id", required=True)
     parser.add_argument("--episode-id", required=True)
     parser.add_argument("--video", required=True, help="Local video path or http(s) URL.")
     parser.add_argument(
@@ -34,12 +35,15 @@ def main() -> None:
         if not args.skip_init_db:
             repository.init_schema()
         context = AnalysisWorkflow(repository, settings).run(
+            series_id=args.series_id,
             episode_id=args.episode_id,
             video_input=args.video,
             resume_from=args.resume_from,
         )
     finally:
         connection.close()
+    print(f"series_id={context.series_id}")
+    print(f"episode_id={context.episode_id}")
     print(f"analysis_job={context.job_id}")
     print(f"output_dir={context.output_dir}")
     print(f"highlight_events={len(context.highlight_events)}")

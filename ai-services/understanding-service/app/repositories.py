@@ -23,6 +23,7 @@ SCHEMA_DDL = [
     """
     CREATE TABLE IF NOT EXISTS `analysis_jobs` (
       `job_id` VARCHAR(128) PRIMARY KEY,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `video_id` VARCHAR(128) NOT NULL,
       `status` VARCHAR(32) NOT NULL,
@@ -35,13 +36,14 @@ SCHEMA_DDL = [
       `created_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
       `updated_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
       `completed_at` DATETIME(6) NULL,
-      INDEX `idx_analysis_jobs_episode` (`episode_id`)
+      INDEX `idx_analysis_jobs_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `analysis_step_runs` (
       `step_run_id` VARCHAR(160) PRIMARY KEY,
       `job_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `step_name` VARCHAR(128) NOT NULL,
       `status` VARCHAR(32) NOT NULL,
@@ -57,12 +59,14 @@ SCHEMA_DDL = [
       `error` TEXT,
       `started_at` DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
       `completed_at` DATETIME(6) NULL,
-      INDEX `idx_step_runs_job_step` (`job_id`, `step_name`)
+      INDEX `idx_step_runs_job_step` (`job_id`, `step_name`),
+      INDEX `idx_step_runs_series_episode_step` (`series_id`, `episode_id`, `step_name`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `video_assets` (
       `video_id` VARCHAR(128) PRIMARY KEY,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `source_url` TEXT NOT NULL,
       `storage_uri` TEXT NOT NULL,
@@ -73,25 +77,27 @@ SCHEMA_DDL = [
       `codec` VARCHAR(64),
       `checksum` VARCHAR(128),
       `status` VARCHAR(32) NOT NULL,
-      INDEX `idx_video_assets_episode` (`episode_id`)
+      INDEX `idx_video_assets_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `audio_assets` (
       `audio_id` VARCHAR(128) PRIMARY KEY,
       `video_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `storage_uri` TEXT NOT NULL,
       `sample_rate` INT NOT NULL,
       `channels` INT NOT NULL,
       `duration_ms` INT NOT NULL,
-      INDEX `idx_audio_assets_episode` (`episode_id`)
+      INDEX `idx_audio_assets_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `transcript_chunks` (
       `chunk_id` VARCHAR(128) PRIMARY KEY,
       `audio_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `start_ms` INT NOT NULL,
       `end_ms` INT NOT NULL,
@@ -99,34 +105,38 @@ SCHEMA_DDL = [
       `provider` VARCHAR(64) NOT NULL,
       `model` VARCHAR(128) NOT NULL,
       `asr_segments` JSON NOT NULL,
-      INDEX `idx_transcript_episode_time` (`episode_id`, `start_ms`, `end_ms`)
+      INDEX `idx_transcript_series_episode_time` (`series_id`, `episode_id`, `start_ms`, `end_ms`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `video_segments` (
       `segment_id` VARCHAR(128) PRIMARY KEY,
       `video_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `start_ms` INT NOT NULL,
       `end_ms` INT NOT NULL,
       `keyframe_ids` JSON NOT NULL,
-      INDEX `idx_video_segments_episode_time` (`episode_id`, `start_ms`, `end_ms`)
+      INDEX `idx_video_segments_series_episode_time` (`series_id`, `episode_id`, `start_ms`, `end_ms`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `keyframes` (
       `keyframe_id` VARCHAR(160) PRIMARY KEY,
       `segment_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `timestamp_ms` INT NOT NULL,
       `image_uri` TEXT NOT NULL,
-      INDEX `idx_keyframes_segment` (`segment_id`)
+      INDEX `idx_keyframes_segment` (`segment_id`),
+      INDEX `idx_keyframes_series_episode_segment` (`series_id`, `episode_id`, `segment_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `segment_understandings` (
       `segment_understanding_id` VARCHAR(160) PRIMARY KEY,
       `segment_id` VARCHAR(128) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `start_ms` INT NOT NULL,
       `end_ms` INT NOT NULL,
@@ -138,12 +148,13 @@ SCHEMA_DDL = [
       `main_actions` TEXT,
       `emotion_hint` TEXT,
       `conflict_level` INT NOT NULL,
-      INDEX `idx_segment_understandings_episode` (`episode_id`)
+      INDEX `idx_segment_understandings_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `understanding_packages` (
       `package_id` VARCHAR(160) PRIMARY KEY,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `video_id` VARCHAR(128) NOT NULL,
       `pipeline_version` VARCHAR(64) NOT NULL,
@@ -152,23 +163,25 @@ SCHEMA_DDL = [
       `transcript_chunk_ids` JSON NOT NULL,
       `video_segment_ids` JSON NOT NULL,
       `segment_understanding_ids` JSON NOT NULL,
-      INDEX `idx_understanding_packages_episode` (`episode_id`)
+      INDEX `idx_understanding_packages_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `observed_scripts` (
       `script_id` VARCHAR(160) PRIMARY KEY,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `title` TEXT NOT NULL,
       `summary` TEXT NOT NULL,
       `content_json` JSON NOT NULL,
       `content_markdown` MEDIUMTEXT NOT NULL,
-      INDEX `idx_observed_scripts_episode` (`episode_id`)
+      INDEX `idx_observed_scripts_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `highlight_candidates` (
       `candidate_id` VARCHAR(160) PRIMARY KEY,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `taxonomy_version` VARCHAR(64) NOT NULL,
       `source_scene_id` VARCHAR(128) NOT NULL,
@@ -184,13 +197,14 @@ SCHEMA_DDL = [
       `intensity` DOUBLE NOT NULL,
       `confidence` DOUBLE NOT NULL,
       `raw_json` JSON NOT NULL,
-      INDEX `idx_highlight_candidates_episode` (`episode_id`)
+      INDEX `idx_highlight_candidates_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `highlight_events` (
       `highlight_id` VARCHAR(160) PRIMARY KEY,
       `candidate_id` VARCHAR(160),
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `taxonomy_version` VARCHAR(64) NOT NULL,
       `highlight_type` VARCHAR(64) NOT NULL,
@@ -213,13 +227,14 @@ SCHEMA_DDL = [
       `review_status` VARCHAR(32) NOT NULL,
       `enabled` BOOLEAN NOT NULL DEFAULT FALSE,
       `raw_json` JSON NOT NULL,
-      INDEX `idx_highlight_events_episode_time` (`episode_id`, `start_ms`, `end_ms`)
+      INDEX `idx_highlight_events_series_episode_time` (`series_id`, `episode_id`, `start_ms`, `end_ms`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
     """
     CREATE TABLE IF NOT EXISTS `highlight_event_evidence` (
       `evidence_id` VARCHAR(192) PRIMARY KEY,
       `highlight_id` VARCHAR(160) NOT NULL,
+      `series_id` VARCHAR(128) NOT NULL,
       `episode_id` VARCHAR(128) NOT NULL,
       `evidence_index` INT NOT NULL,
       `type` VARCHAR(32) NOT NULL,
@@ -232,9 +247,80 @@ SCHEMA_DDL = [
       `start_ms` INT NULL,
       `end_ms` INT NULL,
       `raw_json` JSON NOT NULL,
-      INDEX `idx_highlight_evidence_highlight` (`highlight_id`, `evidence_index`)
+      INDEX `idx_highlight_evidence_highlight` (`highlight_id`, `evidence_index`),
+      INDEX `idx_highlight_evidence_series_episode` (`series_id`, `episode_id`, `highlight_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
+]
+
+
+SERIES_COLUMN_MIGRATIONS = [
+    ("analysis_jobs", "job_id"),
+    ("analysis_step_runs", "job_id"),
+    ("video_assets", "video_id"),
+    ("audio_assets", "video_id"),
+    ("transcript_chunks", "audio_id"),
+    ("video_segments", "video_id"),
+    ("keyframes", "segment_id"),
+    ("segment_understandings", "segment_id"),
+    ("understanding_packages", "package_id"),
+    ("observed_scripts", "script_id"),
+    ("highlight_candidates", "candidate_id"),
+    ("highlight_events", "candidate_id"),
+    ("highlight_event_evidence", "highlight_id"),
+]
+
+
+SERIES_INDEX_MIGRATIONS = [
+    ("analysis_jobs", "idx_analysis_jobs_series_episode", ("series_id", "episode_id")),
+    (
+        "analysis_step_runs",
+        "idx_step_runs_series_episode_step",
+        ("series_id", "episode_id", "step_name"),
+    ),
+    ("video_assets", "idx_video_assets_series_episode", ("series_id", "episode_id")),
+    ("audio_assets", "idx_audio_assets_series_episode", ("series_id", "episode_id")),
+    (
+        "transcript_chunks",
+        "idx_transcript_series_episode_time",
+        ("series_id", "episode_id", "start_ms", "end_ms"),
+    ),
+    (
+        "video_segments",
+        "idx_video_segments_series_episode_time",
+        ("series_id", "episode_id", "start_ms", "end_ms"),
+    ),
+    (
+        "keyframes",
+        "idx_keyframes_series_episode_segment",
+        ("series_id", "episode_id", "segment_id"),
+    ),
+    (
+        "segment_understandings",
+        "idx_segment_understandings_series_episode",
+        ("series_id", "episode_id"),
+    ),
+    (
+        "understanding_packages",
+        "idx_understanding_packages_series_episode",
+        ("series_id", "episode_id"),
+    ),
+    ("observed_scripts", "idx_observed_scripts_series_episode", ("series_id", "episode_id")),
+    (
+        "highlight_candidates",
+        "idx_highlight_candidates_series_episode",
+        ("series_id", "episode_id"),
+    ),
+    (
+        "highlight_events",
+        "idx_highlight_events_series_episode_time",
+        ("series_id", "episode_id", "start_ms", "end_ms"),
+    ),
+    (
+        "highlight_event_evidence",
+        "idx_highlight_evidence_series_episode",
+        ("series_id", "episode_id", "highlight_id"),
+    ),
 ]
 
 
@@ -265,7 +351,50 @@ class MySQLRepository:
         with self.connection.cursor() as cursor:
             for statement in SCHEMA_DDL:
                 cursor.execute(statement)
+            self._ensure_series_id_columns(cursor)
+            self._ensure_series_id_indexes(cursor)
         self.connection.commit()
+
+    def _ensure_series_id_columns(self, cursor) -> None:
+        for table, after_column in SERIES_COLUMN_MIGRATIONS:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS column_count
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = %s
+                  AND column_name = 'series_id'
+                """,
+                (table,),
+            )
+            row = cursor.fetchone() or {}
+            if int(row.get("column_count", 0)) > 0:
+                continue
+            cursor.execute(
+                f"""
+                ALTER TABLE `{table}`
+                ADD COLUMN `series_id` VARCHAR(128) NOT NULL DEFAULT 'default_series'
+                AFTER `{after_column}`
+                """
+            )
+
+    def _ensure_series_id_indexes(self, cursor) -> None:
+        for table, index_name, columns in SERIES_INDEX_MIGRATIONS:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS index_count
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                  AND table_name = %s
+                  AND index_name = %s
+                """,
+                (table, index_name),
+            )
+            row = cursor.fetchone() or {}
+            if int(row.get("index_count", 0)) > 0:
+                continue
+            quoted_columns = ", ".join(f"`{column}`" for column in columns)
+            cursor.execute(f"CREATE INDEX `{index_name}` ON `{table}` ({quoted_columns})")
 
     def save_analysis_job(self, job: dict[str, Any]) -> None:
         self._upsert("analysis_jobs", job, "job_id")
@@ -304,20 +433,47 @@ class MySQLRepository:
     def get_transcript_chunk(self, chunk_id: str) -> dict[str, Any] | None:
         return self._fetch_one("transcript_chunks", "chunk_id", chunk_id)
 
-    def list_transcript_chunks(self, episode_id: str) -> list[dict[str, Any]]:
-        return self._fetch_many("transcript_chunks", "episode_id", episode_id)
+    def list_transcript_chunks(
+        self,
+        series_id: str,
+        episode_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if episode_id is None:
+            return self._fetch_many("transcript_chunks", "episode_id", series_id)
+        return self._fetch_many_by_columns(
+            "transcript_chunks",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
 
     def save_video_segment(self, segment: VideoSegment) -> None:
         self._upsert("video_segments", segment, "segment_id")
 
-    def list_video_segments(self, episode_id: str) -> list[dict[str, Any]]:
-        return self._fetch_many("video_segments", "episode_id", episode_id)
+    def list_video_segments(
+        self,
+        series_id: str,
+        episode_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if episode_id is None:
+            return self._fetch_many("video_segments", "episode_id", series_id)
+        return self._fetch_many_by_columns(
+            "video_segments",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
 
     def save_keyframe(self, keyframe: Keyframe) -> None:
         self._upsert("keyframes", keyframe, "keyframe_id")
 
-    def list_keyframes(self, episode_id: str) -> list[dict[str, Any]]:
-        return self._fetch_many("keyframes", "episode_id", episode_id)
+    def list_keyframes(
+        self,
+        series_id: str,
+        episode_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if episode_id is None:
+            return self._fetch_many("keyframes", "episode_id", series_id)
+        return self._fetch_many_by_columns(
+            "keyframes",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
 
     def save_segment_understanding(self, understanding: SegmentUnderstanding) -> None:
         self._upsert(
@@ -326,8 +482,17 @@ class MySQLRepository:
             "segment_understanding_id",
         )
 
-    def list_segment_understandings(self, episode_id: str) -> list[dict[str, Any]]:
-        return self._fetch_many("segment_understandings", "episode_id", episode_id)
+    def list_segment_understandings(
+        self,
+        series_id: str,
+        episode_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if episode_id is None:
+            return self._fetch_many("segment_understandings", "episode_id", series_id)
+        return self._fetch_many_by_columns(
+            "segment_understandings",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
 
     def save_understanding_package(self, package: UnderstandingPackage) -> None:
         self._upsert("understanding_packages", package, "package_id")
@@ -340,6 +505,7 @@ class MySQLRepository:
             "observed_scripts",
             {
                 "script_id": script.script_id,
+                "series_id": script.series_id,
                 "episode_id": script.episode_id,
                 "title": script.title,
                 "summary": script.summary,
@@ -380,6 +546,20 @@ class MySQLRepository:
             }
         return row
 
+    def list_highlight_events(self, series_id: str, episode_id: str) -> list[dict[str, Any]]:
+        rows = self._fetch_many_by_columns(
+            "highlight_events",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
+        for row in rows:
+            if "timing" not in row:
+                row["timing"] = {
+                    "start_ms": row.get("start_ms"),
+                    "peak_ms": row.get("peak_ms"),
+                    "end_ms": row.get("end_ms"),
+                }
+        return rows
+
     def save_highlight_event_evidence(self, event: HighlightEvent) -> None:
         for index, evidence in enumerate(event.evidence):
             evidence_json = evidence.model_dump(mode="json")
@@ -388,6 +568,7 @@ class MySQLRepository:
                 {
                     "evidence_id": f"{event.highlight_id}:{index:03d}",
                     "highlight_id": event.highlight_id,
+                    "series_id": event.series_id,
                     "episode_id": event.episode_id,
                     "evidence_index": index,
                     **evidence_json,
@@ -424,16 +605,18 @@ class MySQLRepository:
         return _decode_row(row) if row else None
 
     def _fetch_many(self, table: str, column: str, value: Any) -> list[dict[str, Any]]:
-        order_clause = ""
-        if table == "highlight_event_evidence":
-            order_clause = " ORDER BY `evidence_index` ASC"
-        elif table in {"transcript_chunks", "video_segments"}:
-            order_clause = " ORDER BY `start_ms` ASC"
-        elif table == "keyframes":
-            order_clause = " ORDER BY `timestamp_ms` ASC"
+        order_clause = _order_clause(table)
         sql = f"SELECT * FROM `{table}` WHERE `{column}` = %s{order_clause}"
         with self.connection.cursor() as cursor:
             cursor.execute(sql, (value,))
+            rows = cursor.fetchall()
+        return [_decode_row(row) for row in rows]
+
+    def _fetch_many_by_columns(self, table: str, filters: dict[str, Any]) -> list[dict[str, Any]]:
+        where_clause = " AND ".join(f"`{column}` = %s" for column in filters)
+        sql = f"SELECT * FROM `{table}` WHERE {where_clause}{_order_clause(table)}"
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, tuple(filters.values()))
             rows = cursor.fetchall()
         return [_decode_row(row) for row in rows]
 
@@ -464,3 +647,15 @@ def _decode_row(row: dict[str, Any]) -> dict[str, Any]:
     if "enabled" in decoded:
         decoded["enabled"] = bool(decoded["enabled"])
     return decoded
+
+
+def _order_clause(table: str) -> str:
+    if table == "highlight_event_evidence":
+        return " ORDER BY `evidence_index` ASC"
+    if table in {"transcript_chunks", "video_segments", "highlight_events"}:
+        return " ORDER BY `start_ms` ASC"
+    if table == "keyframes":
+        return " ORDER BY `timestamp_ms` ASC"
+    if table == "segment_understandings":
+        return " ORDER BY `start_ms` ASC"
+    return ""

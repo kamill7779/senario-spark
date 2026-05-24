@@ -19,7 +19,7 @@ kubectl create secret generic understanding-service-secrets `
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-Set `EPISODE_ID`, `VIDEO_INPUT`, and MySQL connection values in the ConfigMap section, then run:
+Set `SERIES_ID`, `EPISODE_ID`, `VIDEO_INPUT`, and MySQL connection values in the ConfigMap section, then run:
 
 ```powershell
 kubectl apply -f D:\Project\senario-spark\.worktrees\analysis-pipeline-mysql\deploy\k8s\understanding-service\analysis-job.yaml

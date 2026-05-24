@@ -47,6 +47,7 @@ class HighlightEvidence(BaseModel):
 
 class HighlightCandidate(BaseModel):
     candidate_id: str
+    series_id: str
     episode_id: str
     taxonomy_version: str
     source_scene_id: str

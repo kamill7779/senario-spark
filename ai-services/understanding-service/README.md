@@ -32,22 +32,23 @@ python -m scripts.init_db
 Run the full chain:
 
 ```powershell
-python -m scripts.run_analysis --episode-id ep_003 --video "C:\Users\23999\Downloads\第3集.mp4"
+python -m scripts.run_analysis --series-id series_001 --episode-id ep_003 --video "C:\Users\23999\Downloads\第3集.mp4"
 ```
 
 Resume from a failed step:
 
 ```powershell
-python -m scripts.run_analysis --episode-id ep_003 --video "C:\Users\23999\Downloads\第3集.mp4" --resume-from highlight_extraction_agent
+python -m scripts.run_analysis --series-id series_001 --episode-id ep_003 --video "C:\Users\23999\Downloads\第3集.mp4" --resume-from highlight_extraction_agent
 ```
 
-Outputs are written under `outputs/<episode_id>/`, including `audio.wav`, `audio_chunks/`,
-`keyframes/`, `observed_script.json`, `observed_script.md`, and `highlight_events.json`.
+Outputs are written under `outputs/<series_id>/<episode_id>/`, including `audio.wav`,
+`audio_chunks/`, `keyframes/`, `observed_script.json`, `observed_script.md`, and
+`highlight_events.json`.
 
 ## Docker Compose
 
-Copy `.env.example` to `.env`, place a local video under `input/`, and update `VIDEO_INPUT`
-if the file name is not `/input/episode.mp4`.
+Copy `.env.example` to `.env`, set `SERIES_ID` and `EPISODE_ID`, place a local video under
+`input/`, and update `VIDEO_INPUT` if the file name is not `/input/episode.mp4`.
 
 ```powershell
 copy .env.example .env

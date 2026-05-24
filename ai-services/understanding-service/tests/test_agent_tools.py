@@ -9,6 +9,7 @@ def _toolbox() -> HighlightToolbox:
     script = ObservedScript.model_validate(
         {
             "script_id": "script_ep_003_v1",
+            "series_id": "series_001",
             "episode_id": "ep_003",
             "title": "镇北侯府·孽障",
             "summary": "雨儿揭穿沈慧珍的伪装。",
@@ -31,6 +32,7 @@ def _toolbox() -> HighlightToolbox:
         VideoSegment(
             segment_id="seg_012",
             video_id="vid_003",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=96000,
             end_ms=104000,
@@ -39,6 +41,7 @@ def _toolbox() -> HighlightToolbox:
         VideoSegment(
             segment_id="seg_013",
             video_id="vid_003",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=104000,
             end_ms=112000,
@@ -49,6 +52,7 @@ def _toolbox() -> HighlightToolbox:
         Keyframe(
             keyframe_id="kf_seg_013_108000",
             segment_id="seg_013",
+            series_id="series_001",
             episode_id="ep_003",
             timestamp_ms=108000,
             image_uri="outputs/ep_003/keyframes/seg_013_108000.jpg",
@@ -58,6 +62,7 @@ def _toolbox() -> HighlightToolbox:
         TranscriptChunk(
             chunk_id="aud_005",
             audio_id="audio_ep_003",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=100000,
             end_ms=120000,
@@ -90,6 +95,7 @@ def _toolbox() -> HighlightToolbox:
         SegmentUnderstanding(
             segment_understanding_id="su_seg_013",
             segment_id="seg_013",
+            series_id="series_001",
             episode_id="ep_003",
             start_ms=104000,
             end_ms=112000,
@@ -151,6 +157,7 @@ def test_toolbox_submit_highlight_events_validates_schema():
     event = {
         "highlight_id": "hl_ep_003_001",
         "candidate_id": "hc_ep_003_001",
+        "series_id": "series_001",
         "episode_id": "ep_003",
         "taxonomy_version": TAXONOMY.taxonomy_version,
         "highlight_type": "reversal",

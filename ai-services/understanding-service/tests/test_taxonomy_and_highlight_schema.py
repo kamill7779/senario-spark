@@ -11,6 +11,7 @@ def valid_highlight_event_payload() -> dict:
     return {
         "highlight_id": "hl_ep_003_001",
         "candidate_id": "hc_ep_003_001",
+        "series_id": "series_001",
         "episode_id": "ep_003",
         "taxonomy_version": TAXONOMY.taxonomy_version,
         "highlight_type": "reversal",

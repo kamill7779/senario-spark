@@ -30,7 +30,7 @@ def file_sha256(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def probe_video(video_path: Path, episode_id: str, video_id: str) -> VideoAsset:
+def probe_video(video_path: Path, series_id: str, episode_id: str, video_id: str) -> VideoAsset:
     ffmpeg = ffmpeg_executable()
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", str(video_path)],
@@ -43,6 +43,7 @@ def probe_video(video_path: Path, episode_id: str, video_id: str) -> VideoAsset:
     width, height = _parse_dimensions(metadata)
     return VideoAsset(
         video_id=video_id,
+        series_id=series_id,
         episode_id=episode_id,
         source_url=video_path.resolve().as_uri(),
         storage_uri=video_path.resolve().as_uri(),
@@ -109,18 +110,21 @@ def plan_audio_chunks(duration_ms: int, chunk_ms: int = 20_000) -> list[tuple[in
 
 def plan_video_segments(
     video_id: str,
+    series_id: str,
     episode_id: str,
     duration_ms: int,
     segment_ms: int = 8_000,
 ) -> list[VideoSegment]:
     segments: list[VideoSegment] = []
+    id_prefix = f"{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}"
     for index, (start_ms, end_ms) in enumerate(_plan_ranges(duration_ms, segment_ms)):
         midpoint = start_ms + max(0, math.floor((end_ms - start_ms) / 2))
-        segment_id = f"seg_{index:03d}"
+        segment_id = f"seg_{id_prefix}_{index:03d}"
         segments.append(
             VideoSegment(
                 segment_id=segment_id,
                 video_id=video_id,
+                series_id=series_id,
                 episode_id=episode_id,
                 start_ms=start_ms,
                 end_ms=end_ms,
@@ -159,6 +163,7 @@ def extract_keyframes(video_path: Path, segments: list[VideoSegment], output_dir
             Keyframe(
                 keyframe_id=keyframe_id,
                 segment_id=segment.segment_id,
+                series_id=segment.series_id,
                 episode_id=segment.episode_id,
                 timestamp_ms=timestamp_ms,
                 image_uri=str(image_path),
@@ -203,3 +208,7 @@ def _parse_fps(metadata: str) -> float | None:
 def _parse_codec(metadata: str) -> str | None:
     match = re.search(r"Video:\s*([^,\s]+)", metadata)
     return match.group(1) if match else None
+
+
+def _safe_id_part(value: str) -> str:
+    return value.replace("/", "_").replace("\\", "_").strip()

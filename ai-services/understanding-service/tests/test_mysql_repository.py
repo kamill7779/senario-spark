@@ -51,18 +51,22 @@ class FakeCursor:
         self.connection.tables.setdefault(table, {})[row[primary_key]] = row
 
     def _select(self, sql, params):
-        match = re.search(r"FROM `(?P<table>\w+)` WHERE `(?P<column>\w+)` = %s", sql)
+        match = re.search(r"FROM `(?P<table>\w+)` WHERE (?P<where>.+?)(?: ORDER BY|$)", sql)
         assert match, sql
         table = match.group("table")
-        column = match.group("column")
-        value = params[0]
+        columns = re.findall(r"`(?P<column>\w+)` = %s", match.group("where"))
+        assert columns, sql
         rows = [
             row
             for row in self.connection.tables.get(table, {}).values()
-            if row.get(column) == value
+            if all(row.get(column) == value for column, value in zip(columns, params, strict=True))
         ]
-        if "ORDER BY" in sql:
+        if "`evidence_index`" in sql:
             return sorted(rows, key=lambda row: row.get("evidence_index", 0))
+        if "`start_ms`" in sql:
+            return sorted(rows, key=lambda row: row.get("start_ms", 0))
+        if "`timestamp_ms`" in sql:
+            return sorted(rows, key=lambda row: row.get("timestamp_ms", 0))
         return rows[0] if rows else None
 
 
@@ -90,6 +94,7 @@ def _highlight_event() -> HighlightEvent:
         {
             "highlight_id": "hl_repo_001",
             "candidate_id": "hc_repo_001",
+            "series_id": "series_repo",
             "episode_id": "ep_repo",
             "taxonomy_version": TAXONOMY.taxonomy_version,
             "highlight_type": "conflict",
@@ -129,6 +134,7 @@ def test_mysql_repository_writes_and_reads_core_records():
     repo.save_analysis_job(
         {
             "job_id": "job_repo_001",
+            "series_id": "series_repo",
             "episode_id": "ep_repo",
             "video_id": "vid_repo",
             "status": "pending",
@@ -136,7 +142,7 @@ def test_mysql_repository_writes_and_reads_core_records():
             "taxonomy_version": TAXONOMY.taxonomy_version,
             "video_source": "file:///repo.mp4",
             "input_payload": {"video": "repo.mp4"},
-            "output_dir": "outputs/ep_repo",
+            "output_dir": "outputs/series_repo/ep_repo",
             "error": None,
         }
     )
@@ -144,6 +150,7 @@ def test_mysql_repository_writes_and_reads_core_records():
         TranscriptChunk(
             chunk_id="aud_repo_001",
             audio_id="audio_repo",
+            series_id="series_repo",
             episode_id="ep_repo",
             start_ms=1000,
             end_ms=2000,
@@ -162,4 +169,5 @@ def test_mysql_repository_writes_and_reads_core_records():
     assert repo.get_analysis_job("job_repo_001")["episode_id"] == "ep_repo"
     assert repo.get_transcript_chunk("aud_repo_001")["asr_segments"][0]["text"] == "你凭什么这样做"
     assert repo.get_highlight_event("hl_repo_001")["timing"]["peak_ms"] == 1500
+    assert repo.list_highlight_events("series_repo", "ep_repo")[0]["highlight_id"] == "hl_repo_001"
     assert repo.list_highlight_event_evidence("hl_repo_001")[0]["type"] == "asr"

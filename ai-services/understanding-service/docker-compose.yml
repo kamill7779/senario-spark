@@ -32,6 +32,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
+      SERIES_ID: ${SERIES_ID:-series_001}
       EPISODE_ID: ${EPISODE_ID:-ep_003}
       VIDEO_INPUT: ${VIDEO_INPUT:-/input/episode.mp4}
       MYSQL_HOST: mysql

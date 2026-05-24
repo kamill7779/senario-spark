@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 class VideoAsset(BaseModel):
     video_id: str
+    series_id: str
     episode_id: str
     source_url: str
     storage_uri: str
@@ -18,6 +19,7 @@ class VideoAsset(BaseModel):
 class AudioAsset(BaseModel):
     audio_id: str
     video_id: str
+    series_id: str
     episode_id: str
     storage_uri: str
     sample_rate: int = 16000
@@ -35,6 +37,7 @@ class AsrSegment(BaseModel):
 class TranscriptChunk(BaseModel):
     chunk_id: str
     audio_id: str
+    series_id: str
     episode_id: str
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
@@ -47,6 +50,7 @@ class TranscriptChunk(BaseModel):
 class VideoSegment(BaseModel):
     segment_id: str
     video_id: str
+    series_id: str
     episode_id: str
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
@@ -56,6 +60,7 @@ class VideoSegment(BaseModel):
 class Keyframe(BaseModel):
     keyframe_id: str
     segment_id: str
+    series_id: str
     episode_id: str
     timestamp_ms: int = Field(ge=0)
     image_uri: str
@@ -64,6 +69,7 @@ class Keyframe(BaseModel):
 class SegmentUnderstanding(BaseModel):
     segment_understanding_id: str
     segment_id: str
+    series_id: str
     episode_id: str
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
@@ -79,6 +85,7 @@ class SegmentUnderstanding(BaseModel):
 
 class UnderstandingPackage(BaseModel):
     package_id: str
+    series_id: str
     episode_id: str
     video_id: str
     pipeline_version: str

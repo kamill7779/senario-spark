@@ -17,6 +17,7 @@ Return only JSON:
   "candidates": [
     {
       "candidate_id": string,
+      "series_id": string,
       "episode_id": string,
       "taxonomy_version": string,
       "source_scene_id": string,
@@ -66,7 +67,11 @@ class DeepSeekHighlightExtractor:
                 "taxonomy": toolbox.taxonomy.as_prompt_payload(),
             },
         )
-        batch = HighlightCandidateBatch.model_validate(payload)
+        candidate_payloads = payload.get("candidates", [])
+        for candidate_payload in candidate_payloads:
+            candidate_payload.setdefault("series_id", toolbox.observed_script.series_id)
+            candidate_payload.setdefault("episode_id", toolbox.observed_script.episode_id)
+        batch = HighlightCandidateBatch.model_validate({"candidates": candidate_payloads})
         resolver = RuleBasedHighlightExtractor()
         candidates = batch.candidates
         event_payloads = [resolver._resolve_candidate(toolbox, candidate) for candidate in candidates]
@@ -84,6 +89,7 @@ class RuleBasedHighlightExtractor:
 
     def _candidate_payloads(self, toolbox: HighlightToolbox) -> list[dict]:
         candidates: list[dict] = []
+        id_prefix = f"{_safe_id_part(toolbox.observed_script.series_id)}_{_safe_id_part(toolbox.observed_script.episode_id)}"
         for index, scene in enumerate(toolbox.observed_script.scenes):
             segment_ids = scene.source_segment_ids
             if not segment_ids:
@@ -97,7 +103,8 @@ class RuleBasedHighlightExtractor:
             highlight_type = "conflict" if conflict_level >= 3 else "cliffhanger"
             candidates.append(
                 {
-                    "candidate_id": f"hc_{toolbox.observed_script.episode_id}_{index:03d}",
+                    "candidate_id": f"hc_{id_prefix}_{index:03d}",
+                    "series_id": toolbox.observed_script.series_id,
                     "episode_id": toolbox.observed_script.episode_id,
                     "taxonomy_version": toolbox.taxonomy.taxonomy_version,
                     "source_scene_id": scene.scene_id,
@@ -118,7 +125,8 @@ class RuleBasedHighlightExtractor:
             scene = toolbox.observed_script.scenes[0]
             candidates.append(
                 {
-                    "candidate_id": f"hc_{toolbox.observed_script.episode_id}_000",
+                    "candidate_id": f"hc_{id_prefix}_000",
+                    "series_id": toolbox.observed_script.series_id,
                     "episode_id": toolbox.observed_script.episode_id,
                     "taxonomy_version": TAXONOMY.taxonomy_version,
                     "source_scene_id": scene.scene_id,
@@ -219,3 +227,7 @@ def _scene_dialogue(toolbox: HighlightToolbox, segment_ids: list[str]) -> str:
 def _looks_conflict_dialogue(dialogue: str) -> bool:
     markers = ("凭什么", "为什么", "你敢", "不可能", "滚", "住手", "背叛")
     return any(marker in dialogue for marker in markers)
+
+
+def _safe_id_part(value: str) -> str:
+    return value.replace("/", "_").replace("\\", "_").strip()

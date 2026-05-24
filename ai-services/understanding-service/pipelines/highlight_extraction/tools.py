@@ -71,6 +71,8 @@ class HighlightToolbox:
                     results.append(
                         {
                             "source_id": f"{chunk.chunk_id}:{asr.asr_id}",
+                            "series_id": chunk.series_id,
+                            "episode_id": chunk.episode_id,
                             "transcript_chunk_id": chunk.chunk_id,
                             "asr_id": asr.asr_id,
                             "segment_id": self._segment_id_for_time(asr.start_ms, asr.end_ms),

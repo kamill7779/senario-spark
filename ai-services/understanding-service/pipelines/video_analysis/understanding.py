@@ -56,6 +56,7 @@ def build_segment_understandings(
                 {
                     "segment_understanding_id": f"su_{segment.segment_id}",
                     "segment_id": segment.segment_id,
+                    "series_id": segment.series_id,
                     "episode_id": segment.episode_id,
                     "start_ms": segment.start_ms,
                     "end_ms": segment.end_ms,

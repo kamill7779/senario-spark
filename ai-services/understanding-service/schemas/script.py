@@ -30,6 +30,7 @@ class ScriptScene(BaseModel):
 
 class ObservedScript(BaseModel):
     script_id: str
+    series_id: str
     episode_id: str
     title: str
     summary: str
@@ -39,6 +40,8 @@ class ObservedScript(BaseModel):
     def to_markdown(self) -> str:
         lines = [
             f"# {self.title}",
+            "",
+            f"series_id: {self.series_id}",
             "",
             f"episode_id: {self.episode_id}",
             "",

@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: understanding-service-config
 data:
+  SERIES_ID: "series_001"
   EPISODE_ID: "ep_003"
   VIDEO_INPUT: "https://example.com/path/to/episode.mp4"
   MYSQL_HOST: "mysql.default.svc.cluster.local"

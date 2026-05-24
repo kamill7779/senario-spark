@@ -31,6 +31,7 @@ class ZhipuASRClient:
 
 def transcribe_audio_chunks(
     settings: Settings,
+    series_id: str,
     episode_id: str,
     audio_id: str,
     audio_chunk_paths: list[Path],
@@ -46,11 +47,12 @@ def transcribe_audio_chunks(
         if client is None:
             if not settings.allow_model_fallback:
                 raise ModelClientError("ZHIPUAI_API_KEY is required for ASR")
-            chunk = _fallback_chunk(index, episode_id, audio_id, start_ms, end_ms)
+            chunk = _fallback_chunk(index, series_id, episode_id, audio_id, start_ms, end_ms)
         else:
             payload = client.transcribe(path)
             chunk = _chunk_from_asr_payload(
                 index=index,
+                series_id=series_id,
                 episode_id=episode_id,
                 audio_id=audio_id,
                 start_ms=start_ms,
@@ -65,6 +67,7 @@ def transcribe_audio_chunks(
 
 def _chunk_from_asr_payload(
     index: int,
+    series_id: str,
     episode_id: str,
     audio_id: str,
     start_ms: int,
@@ -73,6 +76,7 @@ def _chunk_from_asr_payload(
     provider: str,
     model: str,
 ) -> TranscriptChunk:
+    id_prefix = f"{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}"
     text = (
         payload.get("text")
         or payload.get("result", {}).get("text")
@@ -103,8 +107,9 @@ def _chunk_from_asr_payload(
             {"asr_id": "1", "start_ms": start_ms, "end_ms": end_ms, "text": text.strip()}
         )
     return TranscriptChunk(
-        chunk_id=f"aud_{index:03d}",
+        chunk_id=f"aud_{id_prefix}_{index:03d}",
         audio_id=audio_id,
+        series_id=series_id,
         episode_id=episode_id,
         start_ms=start_ms,
         end_ms=end_ms,
@@ -116,12 +121,19 @@ def _chunk_from_asr_payload(
 
 
 def _fallback_chunk(
-    index: int, episode_id: str, audio_id: str, start_ms: int, end_ms: int
+    index: int,
+    series_id: str,
+    episode_id: str,
+    audio_id: str,
+    start_ms: int,
+    end_ms: int,
 ) -> TranscriptChunk:
+    id_prefix = f"{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}"
     text = f"Local ASR fallback chunk {index + 1}"
     return TranscriptChunk(
-        chunk_id=f"aud_{index:03d}",
+        chunk_id=f"aud_{id_prefix}_{index:03d}",
         audio_id=audio_id,
+        series_id=series_id,
         episode_id=episode_id,
         start_ms=start_ms,
         end_ms=end_ms,
@@ -153,3 +165,7 @@ def _choice_text(payload: dict[str, Any]) -> str:
         return ""
     message = choices[0].get("message") or {}
     return message.get("content") or choices[0].get("text") or ""
+
+
+def _safe_id_part(value: str) -> str:
+    return value.replace("/", "_").replace("\\", "_").strip()

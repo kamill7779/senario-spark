@@ -11,10 +11,11 @@ from app.workflow import AnalysisWorkflow
 
 
 def main() -> int:
+    series_id = os.environ.get("SERIES_ID")
     episode_id = os.environ.get("EPISODE_ID")
     video_input = os.environ.get("VIDEO_INPUT") or os.environ.get("VIDEO_PATH") or os.environ.get("VIDEO_URL")
-    if not episode_id or not video_input:
-        print("EPISODE_ID and VIDEO_INPUT are required.", file=sys.stderr)
+    if not series_id or not episode_id or not video_input:
+        print("SERIES_ID, EPISODE_ID, and VIDEO_INPUT are required.", file=sys.stderr)
         print(
             'Example: docker run --env-file .env -v "%cd%/input:/input:ro" '
             'senariospark/understanding-service:local',
@@ -32,12 +33,15 @@ def main() -> int:
         if os.environ.get("SKIP_INIT_DB", "0") != "1":
             repository.init_schema()
         context = AnalysisWorkflow(repository, settings).run(
+            series_id=series_id,
             episode_id=episode_id,
             video_input=video_input,
             resume_from=os.environ.get("RESUME_FROM") or None,
         )
     finally:
         connection.close()
+    print(f"series_id={context.series_id}")
+    print(f"episode_id={context.episode_id}")
     print(f"analysis_job={context.job_id}")
     print(f"output_dir={context.output_dir}")
     print(f"highlight_events={len(context.highlight_events)}")
