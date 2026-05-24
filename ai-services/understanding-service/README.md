@@ -44,3 +44,23 @@ python -m scripts.run_analysis --episode-id ep_003 --video "C:\Users\23999\Downl
 Outputs are written under `outputs/<episode_id>/`, including `audio.wav`, `audio_chunks/`,
 `keyframes/`, `observed_script.json`, `observed_script.md`, and `highlight_events.json`.
 
+## Docker Compose
+
+Copy `.env.example` to `.env`, place a local video under `input/`, and update `VIDEO_INPUT`
+if the file name is not `/input/episode.mp4`.
+
+```powershell
+copy .env.example .env
+mkdir input
+docker compose --env-file .env up --build understanding-service
+```
+
+Compose starts MySQL, waits for it to become healthy, initializes tables, and runs one
+analysis job. Runtime artifacts are mounted to `outputs/`.
+
+## Kubernetes
+
+Use `deploy/k8s/understanding-service/analysis-job.yaml` from the repository root. It defines
+a ConfigMap for non-secret runtime settings, a Secret placeholder for MySQL/model keys, a PVC
+for `/app/outputs`, and a one-shot Job that runs the same container entrypoint.
+

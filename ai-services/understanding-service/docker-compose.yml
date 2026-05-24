@@ -1,0 +1,56 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_local_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-senario_spark}
+      MYSQL_USER: ${MYSQL_USER:-senario}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-senario_local_password}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - "${MYSQL_PORT_FORWARD:-3306}:3306"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  understanding-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: senariospark/understanding-service:local
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      EPISODE_ID: ${EPISODE_ID:-ep_003}
+      VIDEO_INPUT: ${VIDEO_INPUT:-/input/episode.mp4}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: ${MYSQL_USER:-senario}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-senario_local_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-senario_spark}
+      ZHIPUAI_API_KEY: ${ZHIPUAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      ZHIPUAI_ASR_MODEL: ${ZHIPUAI_ASR_MODEL:-glm-asr-2512}
+      ZHIPUAI_VLM_MODEL: ${ZHIPUAI_VLM_MODEL:-glm-4v-flash}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+      ALLOW_MODEL_FALLBACK: ${ALLOW_MODEL_FALLBACK:-1}
+      OUTPUT_ROOT: /app/outputs
+      WAIT_FOR_MYSQL: "1"
+      MYSQL_WAIT_TIMEOUT_SECONDS: ${MYSQL_WAIT_TIMEOUT_SECONDS:-90}
+    volumes:
+      - ./outputs:/app/outputs
+      - ./input:/input:ro
+
+volumes:
+  mysql_data:

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: understanding-service-config
+data:
+  EPISODE_ID: "ep_003"
+  VIDEO_INPUT: "https://example.com/path/to/episode.mp4"
+  MYSQL_HOST: "mysql.default.svc.cluster.local"
+  MYSQL_PORT: "3306"
+  MYSQL_USER: "senario"
+  MYSQL_DATABASE: "senario_spark"
+  OUTPUT_ROOT: "/app/outputs"
+  ALLOW_MODEL_FALLBACK: "0"
+  WAIT_FOR_MYSQL: "1"
+  MYSQL_WAIT_TIMEOUT_SECONDS: "120"
+  ZHIPUAI_ASR_MODEL: "glm-asr-2512"
+  ZHIPUAI_VLM_MODEL: "glm-4v-flash"
+  DEEPSEEK_MODEL: "deepseek-chat"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: understanding-service-outputs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: understanding-service-analysis
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: understanding-service
+          image: senariospark/understanding-service:local
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: understanding-service-config
+          env:
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: understanding-service-secrets
+                  key: MYSQL_PASSWORD
+            - name: ZHIPUAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: understanding-service-secrets
+                  key: ZHIPUAI_API_KEY
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: understanding-service-secrets
+                  key: DEEPSEEK_API_KEY
+          volumeMounts:
+            - name: outputs
+              mountPath: /app/outputs
+      volumes:
+        - name: outputs
+          persistentVolumeClaim:
+            claimName: understanding-service-outputs
