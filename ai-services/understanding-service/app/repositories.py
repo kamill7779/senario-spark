@@ -148,6 +148,12 @@ SCHEMA_DDL = [
       `main_actions` TEXT,
       `emotion_hint` TEXT,
       `conflict_level` INT NOT NULL,
+      `visible_characters` JSON NOT NULL,
+      `character_actions` JSON NOT NULL,
+      `facial_expressions` TEXT,
+      `shot_cues` TEXT,
+      `sound_cues` TEXT,
+      `power_dynamic` TEXT,
       INDEX `idx_segment_understandings_series_episode` (`series_id`, `episode_id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     """,
@@ -324,6 +330,16 @@ SERIES_INDEX_MIGRATIONS = [
 ]
 
 
+SEGMENT_UNDERSTANDING_COLUMN_MIGRATIONS = [
+    ("visible_characters", "JSON NULL", "conflict_level"),
+    ("character_actions", "JSON NULL", "visible_characters"),
+    ("facial_expressions", "TEXT", "character_actions"),
+    ("shot_cues", "TEXT", "facial_expressions"),
+    ("sound_cues", "TEXT", "shot_cues"),
+    ("power_dynamic", "TEXT", "sound_cues"),
+]
+
+
 JSON_COLUMNS = {
     "input_payload",
     "input_artifact_ids",
@@ -331,6 +347,8 @@ JSON_COLUMNS = {
     "asr_segments",
     "keyframe_ids",
     "transcript_refs",
+    "visible_characters",
+    "character_actions",
     "transcript_chunk_ids",
     "video_segment_ids",
     "segment_understanding_ids",
@@ -352,6 +370,7 @@ class MySQLRepository:
             for statement in SCHEMA_DDL:
                 cursor.execute(statement)
             self._ensure_series_id_columns(cursor)
+            self._ensure_segment_understanding_columns(cursor)
             self._ensure_series_id_indexes(cursor)
         self.connection.commit()
 
@@ -374,6 +393,29 @@ class MySQLRepository:
                 f"""
                 ALTER TABLE `{table}`
                 ADD COLUMN `series_id` VARCHAR(128) NOT NULL DEFAULT 'default_series'
+                AFTER `{after_column}`
+                """
+            )
+
+    def _ensure_segment_understanding_columns(self, cursor) -> None:
+        for column_name, column_type, after_column in SEGMENT_UNDERSTANDING_COLUMN_MIGRATIONS:
+            cursor.execute(
+                """
+                SELECT COUNT(*) AS column_count
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'segment_understandings'
+                  AND column_name = %s
+                """,
+                (column_name,),
+            )
+            row = cursor.fetchone() or {}
+            if int(row.get("column_count", 0)) > 0:
+                continue
+            cursor.execute(
+                f"""
+                ALTER TABLE `segment_understandings`
+                ADD COLUMN `{column_name}` {column_type}
                 AFTER `{after_column}`
                 """
             )
@@ -642,6 +684,12 @@ def _encode_value(key: str, value: Any) -> Any:
 def _decode_row(row: dict[str, Any]) -> dict[str, Any]:
     decoded = dict(row)
     for key, value in list(decoded.items()):
+        if key in {"visible_characters", "character_actions"} and value is None:
+            decoded[key] = []
+            continue
+        if key in {"facial_expressions", "shot_cues", "sound_cues", "power_dynamic"} and value is None:
+            decoded[key] = ""
+            continue
         if key in JSON_COLUMNS and isinstance(value, str):
             decoded[key] = json.loads(value)
     if "enabled" in decoded:

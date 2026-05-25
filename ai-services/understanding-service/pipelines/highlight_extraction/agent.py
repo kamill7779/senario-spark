@@ -35,7 +35,10 @@ Return only JSON:
     }
   ]
 }
-Do not invent taxonomy values. Use only source_scene_id and source_segment_ids that exist in observed_script."""
+Do not invent taxonomy values. Use only source_scene_id and source_segment_ids that exist in observed_script.
+Use restored plot_facts, canonical character aliases, beat clean_text, and uncertainty notes to
+understand why a short-drama moment is emotionally interactive. Still anchor timing and trigger
+text through ASR, segment, and keyframe evidence tools; never rely on summary-only timing."""
 
 
 class HighlightCandidateBatch(BaseModel):

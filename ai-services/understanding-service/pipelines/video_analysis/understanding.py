@@ -14,9 +14,17 @@ VLM_PROMPT = """Return one JSON object matching this schema:
   "scene": string,
   "main_actions": string,
   "emotion_hint": string,
-  "conflict_level": integer from 0 to 5
+  "conflict_level": integer from 0 to 5,
+  "visible_characters": [string],
+  "character_actions": [string],
+  "facial_expressions": string,
+  "shot_cues": string,
+  "sound_cues": string,
+  "power_dynamic": string
 }
-Use the keyframe and nearby ASR text as evidence. Do not invent IDs."""
+Use the keyframe and nearby ASR text as evidence. Preserve character continuity when the same
+person appears in adjacent segments. Separate visible evidence from inferred relationships.
+Do not invent IDs or unsupported plot facts."""
 
 
 def build_segment_understandings(
@@ -92,6 +100,12 @@ def _fallback_understanding_payload(dialogue: str) -> dict:
         "main_actions": "No VLM model output available.",
         "emotion_hint": "conflict" if conflict_level >= 3 else "neutral",
         "conflict_level": conflict_level,
+        "visible_characters": [],
+        "character_actions": [],
+        "facial_expressions": "",
+        "shot_cues": "",
+        "sound_cues": "",
+        "power_dynamic": "",
     }
 
 

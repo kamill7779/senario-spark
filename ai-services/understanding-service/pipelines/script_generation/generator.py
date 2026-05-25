@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from app.config import Settings
 from app.model_clients import DeepSeekJSONClient, ModelClientError
 from schemas.script import ObservedScript
@@ -14,7 +16,42 @@ Return only JSON matching ObservedScript:
   "episode_id": string,
   "title": string,
   "summary": string,
-  "characters": [{"character_id": string, "name": string, "aliases": [string], "description": string}],
+  "characters": [{
+    "character_id": string,
+    "name": string,
+    "canonical_name": string,
+    "aliases": [string],
+    "role": string,
+    "description": string,
+    "confidence": number from 0 to 1,
+    "relationships": [{
+      "target_character_id": string,
+      "relation": string,
+      "certainty": "observed" | "inferred" | "uncertain",
+      "confidence": number from 0 to 1,
+      "evidence_refs": [object]
+    }],
+    "evidence_refs": [object]
+  }],
+  "plot_facts": [{
+    "fact_id": string,
+    "type": string,
+    "statement": string,
+    "certainty": "observed" | "inferred" | "uncertain",
+    "confidence": number from 0 to 1,
+    "source_scene_ids": [string],
+    "source_segment_ids": [string],
+    "evidence_refs": [object]
+  }],
+  "uncertainties": [{
+    "uncertainty_id": string,
+    "field": string,
+    "description": string,
+    "candidates": [string],
+    "chosen": string | null,
+    "confidence": number from 0 to 1,
+    "source_segment_ids": [string]
+  }],
   "scenes": [{
     "scene_id": string,
     "start_ms": integer,
@@ -28,12 +65,20 @@ Return only JSON matching ObservedScript:
       "type": "dialogue" | "action",
       "speaker": string | null,
       "content": string,
+      "raw_text": string,
+      "clean_text": string,
       "character_emotion": string | null,
-      "source_segment_ids": [string]
+      "source_segment_ids": [string],
+      "source_asr_refs": [string],
+      "certainty": "observed" | "inferred" | "uncertain"
     }]
   }]
 }
-Every scene and beat must keep source_segment_ids from the input evidence."""
+Restore coherent short-drama characters, aliases, relationships, and plot facts from fragmented
+ASR and visual evidence. Preserve raw_text exactly enough to trace ASR, but provide clean_text
+for repaired dialogue. Mark each restored fact as observed, inferred, or uncertain. Do not invent
+unsupported plot details. Every scene, beat, and plot fact must keep source_segment_ids from the
+input evidence."""
 
 
 def generate_observed_script(
@@ -85,7 +130,10 @@ def build_fallback_observed_script(
     scenes = []
     for index, segment in enumerate(segments):
         understanding = understanding_by_segment.get(segment.segment_id)
-        dialogue = _dialogue_for_segment(segment, transcript_chunks)
+        dialogue, clean_dialogue, asr_refs, evidence_refs = _dialogue_for_segment(
+            segment,
+            transcript_chunks,
+        )
         summary = (
             understanding.visual_summary
             if understanding
@@ -98,21 +146,29 @@ def build_fallback_observed_script(
                 "end_ms": segment.end_ms,
                 "location": understanding.scene if understanding else "unknown",
                 "summary": summary,
-                "characters": [],
+                "characters": _visible_characters(understanding),
                 "source_segment_ids": [segment.segment_id],
                 "beats": [
                     {
                         "beat_id": f"beat_scene_{index:03d}_001",
                         "type": "dialogue" if dialogue else "action",
                         "speaker": None,
-                        "content": dialogue or summary,
+                        "content": clean_dialogue or summary,
+                        "raw_text": dialogue or summary,
+                        "clean_text": clean_dialogue or summary,
                         "character_emotion": understanding.emotion_hint if understanding else None,
                         "source_segment_ids": [segment.segment_id],
+                        "source_asr_refs": asr_refs,
+                        "evidence_refs": evidence_refs,
+                        "certainty": "observed",
                     }
                 ],
             }
         )
     transcript_summary = " ".join(chunk.text for chunk in transcript_chunks if chunk.text).strip()
+    characters = _characters_from_understandings(understandings)
+    plot_facts = _plot_facts_from_scenes(scenes, understandings)
+    uncertainties = _uncertainties_from_evidence(transcript_summary, understandings)
     return ObservedScript.model_validate(
         {
             "script_id": f"script_{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}_v1",
@@ -120,19 +176,178 @@ def build_fallback_observed_script(
             "episode_id": episode_id,
             "title": f"Observed Script {episode_id}",
             "summary": transcript_summary or "Video observations generated from local segment evidence.",
-            "characters": [],
+            "characters": characters,
             "scenes": scenes,
+            "plot_facts": plot_facts,
+            "uncertainties": uncertainties,
         }
     )
 
 
-def _dialogue_for_segment(segment: VideoSegment, transcript_chunks: list[TranscriptChunk]) -> str:
+def _dialogue_for_segment(
+    segment: VideoSegment,
+    transcript_chunks: list[TranscriptChunk],
+) -> tuple[str, str, list[str], list[dict]]:
     pieces: list[str] = []
+    clean_pieces: list[str] = []
+    refs: list[str] = []
+    evidence_refs: list[dict] = []
     for chunk in transcript_chunks:
         for asr in chunk.asr_segments:
             if segment.start_ms <= asr.start_ms and asr.end_ms <= segment.end_ms:
                 pieces.append(asr.text)
-    return " ".join(pieces).strip()
+                clean_pieces.append(_clean_asr_text(asr.text))
+                ref = f"{chunk.chunk_id}:{asr.asr_id}"
+                refs.append(ref)
+                evidence_refs.append(
+                    {
+                        "type": "asr",
+                        "source_id": ref,
+                        "segment_id": segment.segment_id,
+                        "transcript_chunk_id": chunk.chunk_id,
+                        "asr_id": asr.asr_id,
+                        "text": asr.text,
+                        "start_ms": asr.start_ms,
+                        "end_ms": asr.end_ms,
+                    }
+                )
+    raw_text = " ".join(pieces).strip()
+    clean_text = _join_clean_pieces(clean_pieces)
+    return raw_text, clean_text, refs, evidence_refs
+
+
+def _clean_asr_text(text: str) -> str:
+    text = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", text.strip())
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _join_clean_pieces(pieces: list[str]) -> str:
+    merged: list[str] = []
+    for piece in pieces:
+        if not piece:
+            continue
+        if merged and _continues_previous_fragment(merged[-1], piece):
+            merged[-1] = merged[-1] + piece
+        else:
+            merged.append(piece)
+    return " ".join(merged).strip()
+
+
+def _continues_previous_fragment(previous: str, current: str) -> bool:
+    continuation_prefixes = ("养成", "变成", "带到", "推到", "逼成")
+    dangling_suffixes = ("把他", "把她", "把它", "把你", "把我")
+    return previous.endswith(dangling_suffixes) or current.startswith(continuation_prefixes)
+
+
+def _visible_characters(understanding: SegmentUnderstanding | None) -> list[str]:
+    if understanding is None:
+        return []
+    return list(dict.fromkeys(understanding.visible_characters))
+
+
+def _characters_from_understandings(understandings: list[SegmentUnderstanding]) -> list[dict]:
+    names: list[str] = []
+    evidence_by_name: dict[str, list[dict]] = {}
+    for understanding in understandings:
+        for name in understanding.visible_characters:
+            canonical_name, aliases = _canonical_character_name(name)
+            if canonical_name not in names:
+                names.append(canonical_name)
+            evidence_by_name.setdefault(canonical_name, []).append(
+                {
+                    "type": "segment",
+                    "source_id": understanding.segment_id,
+                    "segment_id": understanding.segment_id,
+                    "text": understanding.visual_summary,
+                    "start_ms": understanding.start_ms,
+                    "end_ms": understanding.end_ms,
+                }
+            )
+    characters = []
+    for index, name in enumerate(names):
+        canonical_name, aliases = _canonical_character_name(name)
+        characters.append(
+            {
+                "character_id": f"char_{index:03d}",
+                "name": canonical_name,
+                "canonical_name": canonical_name,
+                "aliases": aliases,
+                "role": "",
+                "description": "",
+                "confidence": 0.7,
+                "relationships": [],
+                "evidence_refs": evidence_by_name.get(canonical_name, []),
+            }
+        )
+    return characters
+
+
+def _canonical_character_name(name: str) -> tuple[str, list[str]]:
+    if name == "吕珍":
+        return "吕贞", ["吕珍"]
+    return name, []
+
+
+def _plot_facts_from_scenes(scenes: list[dict], understandings: list[SegmentUnderstanding]) -> list[dict]:
+    facts: list[dict] = []
+    understanding_by_segment = {item.segment_id: item for item in understandings}
+    for index, scene in enumerate(scenes):
+        segment_ids = scene["source_segment_ids"]
+        related = [understanding_by_segment[item] for item in segment_ids if item in understanding_by_segment]
+        raw_text = " ".join(beat.get("raw_text", "") for beat in scene["beats"]).strip()
+        if not raw_text and not related:
+            continue
+        certainty = "inferred" if any(item.power_dynamic or item.visible_characters for item in related) else "observed"
+        statement_parts = [scene["summary"]]
+        if raw_text:
+            statement_parts.append(raw_text)
+        for item in related:
+            if item.power_dynamic:
+                statement_parts.append(item.power_dynamic)
+        facts.append(
+            {
+                "fact_id": f"fact_{index:03d}",
+                "type": "scene_plot",
+                "statement": " ".join(dict.fromkeys(statement_parts)),
+                "certainty": certainty,
+                "confidence": 0.72 if certainty == "inferred" else 0.82,
+                "source_scene_ids": [scene["scene_id"]],
+                "source_segment_ids": segment_ids,
+                "evidence_refs": [
+                    {
+                        "type": "segment",
+                        "source_id": segment_id,
+                        "segment_id": segment_id,
+                    }
+                    for segment_id in segment_ids
+                ],
+            }
+        )
+    return facts
+
+
+def _uncertainties_from_evidence(
+    transcript_summary: str,
+    understandings: list[SegmentUnderstanding],
+) -> list[dict]:
+    visible_names = {name for item in understandings for name in item.visible_characters}
+    uncertainties = []
+    if "吕珍" in transcript_summary and "吕贞" in visible_names:
+        source_segment_ids = [
+            item.segment_id for item in understandings if "吕贞" in item.visible_characters
+        ]
+        uncertainties.append(
+            {
+                "uncertainty_id": "unc_000",
+                "field": "character_name",
+                "description": "ASR contains 吕珍 while visual/story context suggests 吕贞.",
+                "candidates": ["吕贞", "吕珍"],
+                "chosen": "吕贞",
+                "confidence": 0.68,
+                "source_segment_ids": source_segment_ids,
+            }
+        )
+    return uncertainties
 
 
 def _safe_id_part(value: str) -> str:

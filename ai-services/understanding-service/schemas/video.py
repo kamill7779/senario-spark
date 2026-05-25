@@ -81,6 +81,12 @@ class SegmentUnderstanding(BaseModel):
     main_actions: str
     emotion_hint: str
     conflict_level: int = Field(ge=0, le=5)
+    visible_characters: list[str] = Field(default_factory=list)
+    character_actions: list[str] = Field(default_factory=list)
+    facial_expressions: str = ""
+    shot_cues: str = ""
+    sound_cues: str = ""
+    power_dynamic: str = ""
 
 
 class UnderstandingPackage(BaseModel):
