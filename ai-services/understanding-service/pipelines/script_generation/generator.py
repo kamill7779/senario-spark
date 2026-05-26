@@ -100,23 +100,39 @@ def generate_observed_script(
             understandings,
         )
     client = DeepSeekJSONClient(settings.deepseek_api_key, settings.deepseek_model)
-    payload = client.complete_json(
-        SCRIPT_PROMPT,
-        {
-            "series_id": series_id,
-            "episode_id": episode_id,
-            "segments": [segment.model_dump(mode="json") for segment in segments],
-            "transcript_chunks": [chunk.model_dump(mode="json") for chunk in transcript_chunks],
-            "segment_understandings": [
-                understanding.model_dump(mode="json") for understanding in understandings
-            ],
-        },
-    )
-    script_payload = payload.get("observed_script", payload)
-    script_payload.setdefault("script_id", f"script_{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}_v1")
-    script_payload.setdefault("series_id", series_id)
-    script_payload.setdefault("episode_id", episode_id)
-    return ObservedScript.model_validate(script_payload)
+    try:
+        payload = client.complete_json(
+            SCRIPT_PROMPT,
+            {
+                "series_id": series_id,
+                "episode_id": episode_id,
+                "segments": [segment.model_dump(mode="json") for segment in segments],
+                "transcript_chunks": [chunk.model_dump(mode="json") for chunk in transcript_chunks],
+                "segment_understandings": [
+                    understanding.model_dump(mode="json") for understanding in understandings
+                ],
+            },
+        )
+        script_payload = payload.get("observed_script", payload)
+        script_payload.setdefault(
+            "script_id",
+            f"script_{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}_v1",
+        )
+        script_payload.setdefault("series_id", series_id)
+        script_payload.setdefault("episode_id", episode_id)
+        _normalize_evidence_refs(script_payload)
+        return ObservedScript.model_validate(script_payload)
+    except ValueError as exc:
+        if not settings.allow_model_fallback:
+            raise ModelClientError(f"script generation model returned invalid JSON: {exc}") from exc
+        return build_fallback_observed_script(
+            series_id,
+            episode_id,
+            segments,
+            transcript_chunks,
+            understandings,
+            fallback_reason=f"script generation model returned invalid JSON: {exc}",
+        )
 
 
 def build_fallback_observed_script(
@@ -125,6 +141,7 @@ def build_fallback_observed_script(
     segments: list[VideoSegment],
     transcript_chunks: list[TranscriptChunk],
     understandings: list[SegmentUnderstanding],
+    fallback_reason: str | None = None,
 ) -> ObservedScript:
     understanding_by_segment = {item.segment_id: item for item in understandings}
     scenes = []
@@ -169,6 +186,19 @@ def build_fallback_observed_script(
     characters = _characters_from_understandings(understandings)
     plot_facts = _plot_facts_from_scenes(scenes, understandings)
     uncertainties = _uncertainties_from_evidence(transcript_summary, understandings)
+    if fallback_reason:
+        uncertainties.insert(
+            0,
+            {
+                "uncertainty_id": "unc_model_output",
+                "field": "model_output",
+                "description": fallback_reason,
+                "candidates": ["model_json", "local_fallback"],
+                "chosen": "local_fallback",
+                "confidence": 0.0,
+                "source_segment_ids": [segment.segment_id for segment in segments],
+            },
+        )
     return ObservedScript.model_validate(
         {
             "script_id": f"script_{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}_v1",
@@ -348,6 +378,47 @@ def _uncertainties_from_evidence(
             }
         )
     return uncertainties
+
+
+def _normalize_evidence_refs(value) -> None:
+    if isinstance(value, dict):
+        if "evidence_refs" in value and isinstance(value["evidence_refs"], list):
+            value["evidence_refs"] = [_normalize_evidence_ref(ref) for ref in value["evidence_refs"]]
+        for child in value.values():
+            _normalize_evidence_refs(child)
+    elif isinstance(value, list):
+        for child in value:
+            _normalize_evidence_refs(child)
+
+
+def _normalize_evidence_ref(ref) -> dict:
+    if not isinstance(ref, dict):
+        return {"type": "context", "text": str(ref)}
+    normalized = dict(ref)
+    if not normalized.get("type"):
+        if normalized.get("asr_id") or normalized.get("transcript_chunk_id"):
+            normalized["type"] = "asr"
+        elif normalized.get("keyframe_id"):
+            normalized["type"] = "keyframe"
+        elif normalized.get("segment_id"):
+            normalized["type"] = "segment"
+        else:
+            normalized["type"] = "context"
+    if not normalized.get("source_id"):
+        normalized["source_id"] = (
+            normalized.get("keyframe_id")
+            or normalized.get("segment_id")
+            or _asr_source_id(normalized)
+        )
+    return normalized
+
+
+def _asr_source_id(ref: dict) -> str | None:
+    chunk_id = ref.get("transcript_chunk_id")
+    asr_id = ref.get("asr_id")
+    if chunk_id and asr_id:
+        return f"{chunk_id}:{asr_id}"
+    return chunk_id or asr_id
 
 
 def _safe_id_part(value: str) -> str:

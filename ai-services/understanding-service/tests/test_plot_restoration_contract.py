@@ -1,4 +1,6 @@
+from app.config import Settings
 from pipelines.script_generation.generator import build_fallback_observed_script
+from pipelines.script_generation import generator
 from schemas.script import ObservedScript
 from schemas.video import SegmentUnderstanding, TranscriptChunk, VideoSegment
 
@@ -155,3 +157,130 @@ def test_fallback_script_restores_clean_beats_from_fragmented_asr():
     assert script.characters[0].canonical_name == "吕贞"
     assert script.plot_facts[0].certainty == "inferred"
     assert script.plot_facts[0].source_segment_ids == ["seg_series_001_ep_003_001"]
+
+
+def test_generate_observed_script_falls_back_when_model_returns_invalid_json(monkeypatch):
+    class BrokenDeepSeekClient:
+        def __init__(self, api_key: str, model: str):
+            pass
+
+        def complete_json(self, system_prompt: str, user_payload: dict) -> dict:
+            raise ValueError("invalid model json")
+
+    monkeypatch.setattr(generator, "DeepSeekJSONClient", BrokenDeepSeekClient)
+    settings = Settings(
+        pipeline_version="analysis_pipeline_v0.1",
+        taxonomy_version="highlight_taxonomy_v0.1",
+        output_root=__import__("pathlib").Path("outputs"),
+        audio_chunk_ms=20000,
+        video_segment_ms=8000,
+        zhipuai_api_key=None,
+        deepseek_api_key="configured",
+        zhipuai_asr_model="glm-asr-2512",
+        zhipuai_vlm_model="glm-4v-flash",
+        deepseek_model="deepseek-chat",
+        allow_model_fallback=True,
+    )
+    segments = [
+        VideoSegment(
+            segment_id="seg_series_001_ep_003_001",
+            video_id="vid_series_001_ep_003",
+            series_id="series_001",
+            episode_id="ep_003",
+            start_ms=0,
+            end_ms=8000,
+            keyframe_ids=[],
+        )
+    ]
+
+    script = generator.generate_observed_script(
+        settings,
+        "series_001",
+        "ep_003",
+        segments,
+        [],
+        [],
+    )
+
+    assert script.script_id == "script_series_001_ep_003_v1"
+    assert script.uncertainties[0].field == "model_output"
+    assert "invalid model json" in script.uncertainties[0].description
+
+
+def test_generate_observed_script_normalizes_model_evidence_refs(monkeypatch):
+    class SegmentOnlyEvidenceClient:
+        def __init__(self, api_key: str, model: str):
+            pass
+
+        def complete_json(self, system_prompt: str, user_payload: dict) -> dict:
+            return {
+                "script_id": "script_series_001_ep_003_v1",
+                "series_id": "series_001",
+                "episode_id": "ep_003",
+                "title": "镇北侯府风波",
+                "summary": "吕贞揭露阴谋。",
+                "characters": [
+                    {
+                        "character_id": "char_lu_zhen",
+                        "name": "吕贞",
+                        "canonical_name": "吕贞",
+                        "aliases": ["吕珍"],
+                        "role": "继母",
+                        "description": "掌握真相的人。",
+                        "confidence": 0.8,
+                        "relationships": [
+                            {
+                                "target_character_id": "char_sun_yu",
+                                "relation": "继母",
+                                "certainty": "inferred",
+                                "confidence": 0.8,
+                                "evidence_refs": [{"segment_id": "seg_001"}],
+                            }
+                        ],
+                        "evidence_refs": [{"segment_id": "seg_001"}],
+                    }
+                ],
+                "plot_facts": [
+                    {
+                        "fact_id": "fact_001",
+                        "type": "reveal",
+                        "statement": "吕贞承认故意养废孙瑜。",
+                        "certainty": "inferred",
+                        "confidence": 0.9,
+                        "source_scene_ids": ["scene_001"],
+                        "source_segment_ids": ["seg_001"],
+                        "evidence_refs": [{"segment_id": "seg_001"}],
+                    }
+                ],
+                "uncertainties": [],
+                "scenes": [],
+            }
+
+    monkeypatch.setattr(generator, "DeepSeekJSONClient", SegmentOnlyEvidenceClient)
+    settings = Settings(
+        pipeline_version="analysis_pipeline_v0.1",
+        taxonomy_version="highlight_taxonomy_v0.1",
+        output_root=__import__("pathlib").Path("outputs"),
+        audio_chunk_ms=20000,
+        video_segment_ms=8000,
+        zhipuai_api_key=None,
+        deepseek_api_key="configured",
+        zhipuai_asr_model="glm-asr-2512",
+        zhipuai_vlm_model="glm-4v-flash",
+        deepseek_model="deepseek-chat",
+        allow_model_fallback=False,
+    )
+
+    script = generator.generate_observed_script(
+        settings,
+        "series_001",
+        "ep_003",
+        [],
+        [],
+        [],
+    )
+
+    assert script.characters[0].evidence_refs[0].type == "segment"
+    assert script.characters[0].evidence_refs[0].source_id == "seg_001"
+    assert script.characters[0].relationships[0].evidence_refs[0].type == "segment"
+    assert script.plot_facts[0].evidence_refs[0].type == "segment"
