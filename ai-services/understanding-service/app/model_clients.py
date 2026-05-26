@@ -32,26 +32,29 @@ class DeepSeekJSONClient:
         self.model = model
 
     def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
-        response = requests.post(
-            "https://api.deepseek.com/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {
-                        "role": "user",
-                        "content": json.dumps(user_payload, ensure_ascii=False),
-                    },
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2,
-            },
-            timeout=120,
-        )
+        try:
+            response = requests.post(
+                "https://api.deepseek.com/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {
+                            "role": "user",
+                            "content": json.dumps(user_payload, ensure_ascii=False),
+                        },
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.2,
+                },
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            raise ModelClientError(f"DeepSeek request failed: {exc}") from exc
         if response.status_code >= 400:
             raise ModelClientError(f"DeepSeek request failed: {response.status_code} {response.text}")
         payload = response.json()
@@ -70,36 +73,39 @@ class ZhipuChatClient:
         image_data_url: str,
         extra_payload: dict[str, Any],
     ) -> dict[str, Any]:
-        response = requests.post(
-            "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                                + "\n\n"
-                                + json.dumps(extra_payload, ensure_ascii=False),
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_data_url},
-                            },
-                        ],
-                    }
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2,
-            },
-            timeout=120,
-        )
+        try:
+            response = requests.post(
+                "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": prompt
+                                    + "\n\n"
+                                    + json.dumps(extra_payload, ensure_ascii=False),
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": image_data_url},
+                                },
+                            ],
+                        }
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.2,
+                },
+                timeout=120,
+            )
+        except requests.RequestException as exc:
+            raise ModelClientError(f"Zhipu VLM request failed: {exc}") from exc
         if response.status_code >= 400:
             raise ModelClientError(f"Zhipu VLM request failed: {response.status_code} {response.text}")
         payload = response.json()

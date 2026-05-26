@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import difflib
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -83,6 +85,55 @@ class HighlightToolbox:
                     )
         return sorted(results, key=lambda item: (item["start_ms"], item["end_ms"]))
 
+    def find_asr_evidence_for_text(
+        self,
+        segment_ids: list[str],
+        query_text: str,
+        max_window_size: int = 6,
+        min_score: float = 0.62,
+    ) -> list[dict[str, Any]]:
+        self.tool_call_count += 1
+        query = _normalize_match_text(query_text)
+        if not segment_ids or not query:
+            return []
+
+        asr_segments: list[dict[str, Any]] = []
+        for segment_id in segment_ids:
+            asr_segments.extend(self._asr_segments_for_segment(segment_id))
+        asr_segments = sorted(asr_segments, key=lambda item: (item["start_ms"], item["end_ms"]))
+        if not asr_segments:
+            return []
+
+        best: tuple[float, int, int, list[dict[str, Any]]] | None = None
+        max_window = min(max_window_size, len(asr_segments))
+        for start in range(len(asr_segments)):
+            for end in range(start, min(len(asr_segments), start + max_window)):
+                window = asr_segments[start : end + 1]
+                combined = _normalize_match_text("".join(item["text"] for item in window))
+                if not combined:
+                    continue
+                score = _match_score(query, combined)
+                window_duration = window[-1]["end_ms"] - window[0]["start_ms"]
+                window_size = len(window)
+                candidate = (score, -window_size, -window_duration, window)
+                if best is None or candidate[:3] > best[:3]:
+                    best = candidate
+
+        if best is None or best[0] < min_score:
+            return []
+        return [
+            {
+                "type": "asr",
+                "segment_id": item["segment_id"],
+                "transcript_chunk_id": item["transcript_chunk_id"],
+                "asr_id": item["asr_id"],
+                "text": item["text"],
+                "start_ms": item["start_ms"],
+                "end_ms": item["end_ms"],
+            }
+            for item in best[3]
+        ]
+
     def get_neighbor_segments(
         self, segment_id: str, before: int = 1, after: int = 1
     ) -> list[dict[str, Any]]:
@@ -120,6 +171,28 @@ class HighlightToolbox:
                 return segment
         raise KeyError(f"segment not found: {segment_id}")
 
+    def _asr_segments_for_segment(self, segment_id: str) -> list[dict[str, Any]]:
+        segment = self._segment(segment_id)
+        results: list[dict[str, Any]] = []
+        for chunk in self.transcript_chunks:
+            for asr in chunk.asr_segments:
+                if _within(asr.start_ms, asr.end_ms, segment.start_ms, segment.end_ms):
+                    results.append(
+                        {
+                            "source_id": f"{chunk.chunk_id}:{asr.asr_id}",
+                            "series_id": chunk.series_id,
+                            "episode_id": chunk.episode_id,
+                            "transcript_chunk_id": chunk.chunk_id,
+                            "asr_id": asr.asr_id,
+                            "segment_id": self._segment_id_for_time(asr.start_ms, asr.end_ms)
+                            or segment_id,
+                            "start_ms": asr.start_ms,
+                            "end_ms": asr.end_ms,
+                            "text": asr.text,
+                        }
+                    )
+        return results
+
     def _segment_id_for_time(self, start_ms: int, end_ms: int) -> str | None:
         for segment in self.segments:
             if _overlaps(start_ms, end_ms, segment.start_ms, segment.end_ms):
@@ -133,3 +206,14 @@ def _overlaps(start_a: int, end_a: int, start_b: int, end_b: int) -> bool:
 
 def _within(start_a: int, end_a: int, start_b: int, end_b: int) -> bool:
     return start_b <= start_a and end_a <= end_b
+
+
+def _normalize_match_text(text: str) -> str:
+    return re.sub(r"[\s\W_]+", "", text.lower(), flags=re.UNICODE)
+
+
+def _match_score(query: str, candidate: str) -> float:
+    if query in candidate or candidate in query:
+        coverage = min(len(query), len(candidate)) / max(len(query), len(candidate))
+        return max(0.9, coverage)
+    return difflib.SequenceMatcher(None, query, candidate).ratio()

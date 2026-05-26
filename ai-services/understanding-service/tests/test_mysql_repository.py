@@ -2,6 +2,7 @@ import re
 
 from app.repositories import MySQLRepository
 from schemas.highlight import HighlightEvent
+from schemas.script import ObservedScript
 from schemas.taxonomy import TAXONOMY
 from schemas.video import TranscriptChunk
 
@@ -27,6 +28,8 @@ class FakeCursor:
         if compact.startswith("SELECT"):
             self.result = self._select(compact, params)
             return len(self.result) if isinstance(self.result, list) else int(self.result is not None)
+        if compact.startswith("DELETE FROM"):
+            return self._delete(compact, params)
         raise AssertionError(f"unexpected SQL: {compact}")
 
     def fetchone(self):
@@ -69,11 +72,27 @@ class FakeCursor:
             return sorted(rows, key=lambda row: row.get("timestamp_ms", 0))
         return rows[0] if rows else None
 
+    def _delete(self, sql, params):
+        match = re.search(r"DELETE FROM `(?P<table>\w+)` WHERE (?P<where>.+)$", sql)
+        assert match, sql
+        table = match.group("table")
+        columns = re.findall(r"`(?P<column>\w+)` = %s", match.group("where"))
+        assert columns, sql
+        rows = self.connection.tables.get(table, {})
+        deleted = 0
+        for primary_key, row in list(rows.items()):
+            if all(row.get(column) == value for column, value in zip(columns, params, strict=True)):
+                del rows[primary_key]
+                deleted += 1
+        return deleted
+
 
 class FakeConnection:
     primary_keys = {
         "analysis_jobs": "job_id",
         "transcript_chunks": "chunk_id",
+        "observed_scripts": "script_id",
+        "highlight_candidates": "candidate_id",
         "highlight_events": "highlight_id",
         "highlight_event_evidence": "evidence_id",
     }
@@ -171,3 +190,34 @@ def test_mysql_repository_writes_and_reads_core_records():
     assert repo.get_highlight_event("hl_repo_001")["timing"]["peak_ms"] == 1500
     assert repo.list_highlight_events("series_repo", "ep_repo")[0]["highlight_id"] == "hl_repo_001"
     assert repo.list_highlight_event_evidence("hl_repo_001")[0]["type"] == "asr"
+
+
+def test_repository_clears_episode_script_and_highlight_outputs_before_rerun():
+    connection = FakeConnection()
+    repo = MySQLRepository(connection)
+    script = ObservedScript.model_validate(
+        {
+            "script_id": "script_repo_001",
+            "series_id": "series_repo",
+            "episode_id": "ep_repo",
+            "title": "旧剧本",
+            "summary": "旧摘要",
+            "characters": [],
+            "scenes": [],
+            "plot_facts": [],
+            "uncertainties": [],
+        }
+    )
+    repo.save_observed_script(script, script.to_markdown())
+    event = _highlight_event()
+    repo.save_highlight_candidate(event)
+    repo.save_highlight_event(event)
+    repo.save_highlight_event_evidence(event)
+
+    repo.delete_observed_scripts_for_episode("series_repo", "ep_repo")
+    repo.delete_highlight_outputs_for_episode("series_repo", "ep_repo")
+
+    assert connection.tables["observed_scripts"] == {}
+    assert connection.tables["highlight_candidates"] == {}
+    assert connection.tables["highlight_events"] == {}
+    assert connection.tables["highlight_event_evidence"] == {}

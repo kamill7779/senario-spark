@@ -74,11 +74,14 @@ Return only JSON matching ObservedScript:
     }]
   }]
 }
+除 ID、schema key、枚举值和 source_id 外，所有可读文本字段必须使用简体中文输出。
+不要输出英文角色泛称；无法确认姓名时使用中文描述，例如“白衣男子”“年长妇人”。
 Restore coherent short-drama characters, aliases, relationships, and plot facts from fragmented
 ASR and visual evidence. Preserve raw_text exactly enough to trace ASR, but provide clean_text
 for repaired dialogue. Mark each restored fact as observed, inferred, or uncertain. Do not invent
 unsupported plot details. Every scene, beat, and plot fact must keep source_segment_ids from the
-input evidence."""
+input evidence. 剧情还原必须受证据约束：可以根据 ASR、画面、相邻片段推断人物关系和真实剧情，
+但必须在 plot_facts / uncertainties 中标注 observed、inferred 或 uncertain。"""
 
 
 def generate_observed_script(
@@ -131,7 +134,7 @@ def generate_observed_script(
             segments,
             transcript_chunks,
             understandings,
-            fallback_reason=f"script generation model returned invalid JSON: {exc}",
+            fallback_reason="脚本模型返回的 JSON 未通过解析，已使用本地证据降级生成剧本。",
         )
 
 
@@ -154,7 +157,7 @@ def build_fallback_observed_script(
         summary = (
             understanding.visual_summary
             if understanding
-            else dialogue or f"Segment {segment.segment_id} observation."
+            else dialogue or f"片段 {segment.segment_id} 的本地观测。"
         )
         scenes.append(
             {
@@ -204,8 +207,8 @@ def build_fallback_observed_script(
             "script_id": f"script_{_safe_id_part(series_id)}_{_safe_id_part(episode_id)}_v1",
             "series_id": series_id,
             "episode_id": episode_id,
-            "title": f"Observed Script {episode_id}",
-            "summary": transcript_summary or "Video observations generated from local segment evidence.",
+            "title": f"观测剧本 {episode_id}",
+            "summary": transcript_summary or "本集暂无可用台词，剧本由本地片段证据生成。",
             "characters": characters,
             "scenes": scenes,
             "plot_facts": plot_facts,

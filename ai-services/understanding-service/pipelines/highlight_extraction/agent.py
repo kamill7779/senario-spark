@@ -35,10 +35,12 @@ Return only JSON:
     }
   ]
 }
+除 ID、schema key、taxonomy 枚举值外，所有可读文本字段必须使用简体中文输出。
 Do not invent taxonomy values. Use only source_scene_id and source_segment_ids that exist in observed_script.
 Use restored plot_facts, canonical character aliases, beat clean_text, and uncertainty notes to
 understand why a short-drama moment is emotionally interactive. Still anchor timing and trigger
-text through ASR, segment, and keyframe evidence tools; never rely on summary-only timing."""
+text through ASR, segment, and keyframe evidence tools; never rely on summary-only timing.
+trigger_text_clean 必须尽量是能在 ASR 中反查到的核心台词；不要把剧情概括当作触发台词。"""
 
 
 class HighlightCandidateBatch(BaseModel):
@@ -152,21 +154,26 @@ class RuleBasedHighlightExtractor:
         self, toolbox: HighlightToolbox, candidate: HighlightCandidate
     ) -> dict:
         scene = toolbox.get_scene(candidate.source_scene_id)
-        asr_evidence = []
+        asr_evidence = toolbox.find_asr_evidence_for_text(
+            candidate.source_segment_ids,
+            candidate.trigger_text_clean,
+        )
         keyframe_evidence = []
+        if not asr_evidence:
+            for segment_id in candidate.source_segment_ids:
+                for asr in toolbox.get_asr_segments(segment_id=segment_id):
+                    asr_evidence.append(
+                        {
+                            "type": "asr",
+                            "segment_id": asr["segment_id"] or segment_id,
+                            "transcript_chunk_id": asr["transcript_chunk_id"],
+                            "asr_id": asr["asr_id"],
+                            "text": asr["text"],
+                            "start_ms": asr["start_ms"],
+                            "end_ms": asr["end_ms"],
+                        }
+                    )
         for segment_id in candidate.source_segment_ids:
-            for asr in toolbox.get_asr_segments(segment_id=segment_id):
-                asr_evidence.append(
-                    {
-                        "type": "asr",
-                        "segment_id": asr["segment_id"] or segment_id,
-                        "transcript_chunk_id": asr["transcript_chunk_id"],
-                        "asr_id": asr["asr_id"],
-                        "text": asr["text"],
-                        "start_ms": asr["start_ms"],
-                        "end_ms": asr["end_ms"],
-                    }
-                )
             for keyframe in toolbox.get_keyframes(segment_id):
                 keyframe_evidence.append(
                     {
@@ -176,7 +183,7 @@ class RuleBasedHighlightExtractor:
                         "description": f"Keyframe evidence at {keyframe['timestamp_ms']}ms.",
                     }
                 )
-        evidence = asr_evidence[:3] + keyframe_evidence[:1]
+        evidence = asr_evidence[:6] + keyframe_evidence[:1]
         if not evidence:
             evidence.append(
                 {
@@ -198,7 +205,7 @@ class RuleBasedHighlightExtractor:
             trigger_text_raw = candidate.trigger_text_clean
         return {
             **candidate.model_dump(mode="json"),
-            "highlight_id": candidate.candidate_id.replace("hc_", "hl_", 1),
+            "highlight_id": _highlight_id_for_candidate(candidate.candidate_id),
             "trigger_text_raw": trigger_text_raw or candidate.trigger_text_clean,
             "timing": {
                 "start_ms": start_ms,
@@ -234,3 +241,11 @@ def _looks_conflict_dialogue(dialogue: str) -> bool:
 
 def _safe_id_part(value: str) -> str:
     return value.replace("/", "_").replace("\\", "_").strip()
+
+
+def _highlight_id_for_candidate(candidate_id: str) -> str:
+    if candidate_id.startswith("hl_"):
+        return candidate_id
+    if candidate_id.startswith("hc_"):
+        return candidate_id.replace("hc_", "hl_", 1)
+    return f"hl_{candidate_id}"

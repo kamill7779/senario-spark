@@ -157,7 +157,12 @@ class AnalysisWorkflow:
             (
                 "segment_understanding",
                 self._step_segment_understanding,
-                {"model_provider": "zhipuai", "model_name": self.settings.zhipuai_vlm_model},
+                {
+                    "model_provider": "zhipuai",
+                    "model_name": self.settings.zhipuai_vlm_model,
+                    "prompt_version": "segment_understanding_prompt_v0.2",
+                    "schema_version": "segment_understanding_schema_v0.1",
+                },
             ),
             ("build_understanding_package", self._step_build_understanding_package, {}),
             (
@@ -166,7 +171,7 @@ class AnalysisWorkflow:
                 {
                     "model_provider": "deepseek",
                     "model_name": self.settings.deepseek_model,
-                    "prompt_version": "script_generation_prompt_v0.1",
+                    "prompt_version": "script_generation_prompt_v0.2",
                     "schema_version": "observed_script_schema_v0.1",
                 },
             ),
@@ -176,7 +181,7 @@ class AnalysisWorkflow:
                 {
                     "model_provider": "deepseek",
                     "model_name": self.settings.deepseek_model,
-                    "prompt_version": "highlight_agent_prompt_v0.1",
+                    "prompt_version": "highlight_agent_prompt_v0.2",
                     "schema_version": "highlight_event_schema_v0.1",
                 },
             ),
@@ -435,6 +440,7 @@ class AnalysisWorkflow:
         markdown = context.observed_script.to_markdown()
         _write_json(context.output_dir / "observed_script.json", context.observed_script.model_dump(mode="json"))
         (context.output_dir / "observed_script.md").write_text(markdown, encoding="utf-8")
+        self.repository.delete_observed_scripts_for_episode(context.series_id, context.episode_id)
         self.repository.save_observed_script(context.observed_script, markdown)
         return StepOutput([context.observed_script.script_id])
 
@@ -456,6 +462,7 @@ class AnalysisWorkflow:
             self.settings,
             toolbox,
         )
+        self.repository.delete_highlight_outputs_for_episode(context.series_id, context.episode_id)
         for candidate in context.highlight_candidates:
             self.repository.save_highlight_candidate(candidate)
         for event in context.highlight_events:

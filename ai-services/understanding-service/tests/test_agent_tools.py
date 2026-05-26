@@ -1,4 +1,6 @@
+from pipelines.highlight_extraction.agent import RuleBasedHighlightExtractor
 from pipelines.highlight_extraction.tools import HighlightToolbox
+from schemas.highlight import HighlightCandidate
 from schemas.highlight import HighlightEvent
 from schemas.script import ObservedScript
 from schemas.taxonomy import TAXONOMY
@@ -139,6 +141,186 @@ def test_toolbox_get_asr_segments_by_segment_and_time_range():
 
     assert [item["asr_id"] for item in by_segment] == ["2", "3"]
     assert [item["asr_id"] for item in by_range] == ["2"]
+
+
+def test_toolbox_finds_trigger_text_in_smallest_contiguous_asr_window():
+    toolbox = _toolbox()
+
+    evidence = toolbox.find_asr_evidence_for_text(
+        segment_ids=["seg_012", "seg_013"],
+        query_text="沈慧珍，演了十五年的慈母，也真是难为你们了。",
+    )
+
+    assert [item["asr_id"] for item in evidence] == ["2", "3"]
+    assert evidence[0]["start_ms"] == 106800
+    assert evidence[-1]["end_ms"] == 110900
+
+
+def test_highlight_resolution_uses_trigger_text_match_before_segment_context():
+    toolbox = _toolbox()
+    candidate = HighlightCandidate.model_validate(
+        {
+            "candidate_id": "hc_series_001_ep_003_precise",
+            "series_id": "series_001",
+            "episode_id": "ep_003",
+            "taxonomy_version": TAXONOMY.taxonomy_version,
+            "source_scene_id": "scene_05",
+            "source_segment_ids": ["seg_012", "seg_013"],
+            "highlight_type": "identity_reveal",
+            "secondary_highlight_types": [],
+            "summary": "雨儿点破沈慧珍长期伪装。",
+            "trigger_text_clean": "沈慧珍，演了十五年的慈母，也真是难为你们了。",
+            "primary_audience_emotion": "shock",
+            "audience_emotions": ["shock", "satisfaction"],
+            "interaction_intent": "tease",
+            "sentiment_polarity": "mixed",
+            "intensity": 0.9,
+            "confidence": 0.82,
+        }
+    )
+
+    event_payload = RuleBasedHighlightExtractor()._resolve_candidate(toolbox, candidate)
+
+    assert event_payload["timing"] == {
+        "start_ms": 106800,
+        "peak_ms": 108850,
+        "end_ms": 110900,
+    }
+    assert [item["asr_id"] for item in event_payload["evidence"] if item["type"] == "asr"] == [
+        "2",
+        "3",
+    ]
+    assert "爹娘慢走" not in event_payload["trigger_text_raw"]
+
+
+def test_highlight_resolution_excludes_unmatched_dialogue_inside_same_segment():
+    script = ObservedScript.model_validate(
+        {
+            "script_id": "script_ep_003_v1",
+            "series_id": "series_001",
+            "episode_id": "ep_003",
+            "title": "镇北侯府·孽障",
+            "summary": "雨儿揭穿沈慧珍的伪装。",
+            "characters": [],
+            "scenes": [
+                {
+                    "scene_id": "scene_01",
+                    "start_ms": 104000,
+                    "end_ms": 112000,
+                    "location": "古代庭院",
+                    "summary": "雨儿冷嘲沈慧珍。",
+                    "characters": ["雨儿", "沈慧珍"],
+                    "source_segment_ids": ["seg_013"],
+                    "beats": [],
+                }
+            ],
+        }
+    )
+    segment = VideoSegment(
+        segment_id="seg_013",
+        video_id="vid_003",
+        series_id="series_001",
+        episode_id="ep_003",
+        start_ms=104000,
+        end_ms=112000,
+        keyframe_ids=["kf_seg_013_108000"],
+    )
+    toolbox = HighlightToolbox(
+        observed_script=script,
+        segments=[segment],
+        transcript_chunks=[
+            TranscriptChunk(
+                chunk_id="aud_005",
+                audio_id="audio_ep_003",
+                series_id="series_001",
+                episode_id="ep_003",
+                start_ms=104000,
+                end_ms=112000,
+                text="爹娘慢走 沈慧珍 演了十五年的刺，也真是难为你们了。",
+                provider="test",
+                model="fixture",
+                asr_segments=[
+                    {"asr_id": "1", "start_ms": 104100, "end_ms": 104600, "text": "爹娘慢走"},
+                    {"asr_id": "2", "start_ms": 106800, "end_ms": 107600, "text": "沈慧珍"},
+                    {
+                        "asr_id": "3",
+                        "start_ms": 107800,
+                        "end_ms": 110900,
+                        "text": "演了十五年的刺，也真是难为你们了。",
+                    },
+                ],
+            )
+        ],
+        keyframes=[
+            Keyframe(
+                keyframe_id="kf_seg_013_108000",
+                segment_id="seg_013",
+                series_id="series_001",
+                episode_id="ep_003",
+                timestamp_ms=108000,
+                image_uri="outputs/ep_003/keyframes/seg_013_108000.jpg",
+            )
+        ],
+        segment_understandings=[],
+        taxonomy=TAXONOMY,
+    )
+    candidate = HighlightCandidate.model_validate(
+        {
+            "candidate_id": "hc_series_001_ep_003_same_segment",
+            "series_id": "series_001",
+            "episode_id": "ep_003",
+            "taxonomy_version": TAXONOMY.taxonomy_version,
+            "source_scene_id": "scene_01",
+            "source_segment_ids": ["seg_013"],
+            "highlight_type": "identity_reveal",
+            "secondary_highlight_types": [],
+            "summary": "雨儿点破沈慧珍长期伪装。",
+            "trigger_text_clean": "沈慧珍，演了十五年的慈母，也真是难为你们了。",
+            "primary_audience_emotion": "shock",
+            "audience_emotions": ["shock"],
+            "interaction_intent": "tease",
+            "sentiment_polarity": "mixed",
+            "intensity": 0.9,
+            "confidence": 0.82,
+        }
+    )
+
+    event_payload = RuleBasedHighlightExtractor()._resolve_candidate(toolbox, candidate)
+
+    assert [item["asr_id"] for item in event_payload["evidence"] if item["type"] == "asr"] == [
+        "2",
+        "3",
+    ]
+    assert event_payload["timing"]["start_ms"] == 106800
+    assert "爹娘慢走" not in event_payload["trigger_text_raw"]
+
+
+def test_highlight_resolution_generates_distinct_highlight_id_for_plain_candidate_id():
+    toolbox = _toolbox()
+    candidate = HighlightCandidate.model_validate(
+        {
+            "candidate_id": "candidate_001",
+            "series_id": "series_001",
+            "episode_id": "ep_003",
+            "taxonomy_version": TAXONOMY.taxonomy_version,
+            "source_scene_id": "scene_05",
+            "source_segment_ids": ["seg_013"],
+            "highlight_type": "identity_reveal",
+            "secondary_highlight_types": [],
+            "summary": "雨儿点破沈慧珍长期伪装。",
+            "trigger_text_clean": "沈慧珍，演了十五年的慈母，也真是难为你们了。",
+            "primary_audience_emotion": "shock",
+            "audience_emotions": ["shock"],
+            "interaction_intent": "tease",
+            "sentiment_polarity": "mixed",
+            "intensity": 0.9,
+            "confidence": 0.82,
+        }
+    )
+
+    event_payload = RuleBasedHighlightExtractor()._resolve_candidate(toolbox, candidate)
+
+    assert event_payload["highlight_id"] == "hl_candidate_001"
 
 
 def test_toolbox_get_neighbor_segments_and_keyframes():

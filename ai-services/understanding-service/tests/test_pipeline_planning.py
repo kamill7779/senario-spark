@@ -1,7 +1,12 @@
+from app.config import Settings
+from app.model_clients import ModelClientError
 from pipelines.highlight_extraction.agent import RuleBasedHighlightExtractor
 from pipelines.highlight_extraction.tools import HighlightToolbox
 from pipelines.script_generation.generator import build_fallback_observed_script
 from pipelines.video_analysis.media import plan_audio_chunks, plan_video_segments
+from pipelines.video_analysis import understanding
+from pipelines.video_analysis.understanding import build_segment_understandings
+from pipelines.video_analysis.understanding import _resolve_keyframe_path
 from schemas.taxonomy import TAXONOMY
 from schemas.video import Keyframe, SegmentUnderstanding, TranscriptChunk, VideoSegment
 
@@ -29,6 +34,92 @@ def test_plan_video_segments_sets_midpoint_keyframe_id():
     assert segments[-1].start_ms == 16000
     assert segments[-1].end_ms == 17000
     assert segments[0].keyframe_ids == ["kf_seg_series_001_ep_003_000_4000"]
+
+
+def test_resolve_keyframe_path_maps_container_output_uri_to_local_output_root(tmp_path):
+    output_root = tmp_path / "outputs"
+    keyframe = output_root / "series_001" / "ep_003" / "keyframes" / "kf_001.jpg"
+    keyframe.parent.mkdir(parents=True)
+    keyframe.write_bytes(b"jpeg")
+
+    resolved = _resolve_keyframe_path(
+        "/app/outputs/series_001/ep_003/keyframes/kf_001.jpg",
+        output_root,
+    )
+
+    assert resolved == keyframe
+
+
+def test_resolve_keyframe_path_falls_back_to_cwd_outputs_for_container_output_root(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    keyframe = tmp_path / "outputs" / "series_001" / "ep_003" / "keyframes" / "kf_001.jpg"
+    keyframe.parent.mkdir(parents=True)
+    keyframe.write_bytes(b"jpeg")
+
+    resolved = _resolve_keyframe_path(
+        "/app/outputs/series_001/ep_003/keyframes/kf_001.jpg",
+        __import__("pathlib").Path("/app/outputs"),
+    )
+
+    assert resolved == keyframe
+
+
+def test_segment_understanding_falls_back_per_segment_when_vlm_call_fails(tmp_path, monkeypatch):
+    class BrokenVlmClient:
+        def __init__(self, api_key: str, model: str):
+            pass
+
+        def complete_json_with_image(self, **kwargs):
+            raise ModelClientError("content filter")
+
+    monkeypatch.setattr(understanding, "ZhipuChatClient", BrokenVlmClient)
+    image_path = tmp_path / "outputs" / "series_001" / "ep_003" / "keyframes" / "kf_001.jpg"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(b"jpeg")
+    settings = Settings(
+        pipeline_version="analysis_pipeline_v0.1",
+        taxonomy_version=TAXONOMY.taxonomy_version,
+        output_root=tmp_path / "outputs",
+        audio_chunk_ms=20000,
+        video_segment_ms=8000,
+        zhipuai_api_key="configured",
+        deepseek_api_key=None,
+        zhipuai_asr_model="glm-asr-2512",
+        zhipuai_vlm_model="glm-4v-flash",
+        deepseek_model="deepseek-chat",
+        allow_model_fallback=True,
+    )
+
+    results = build_segment_understandings(
+        settings,
+        [
+            VideoSegment(
+                segment_id="seg_001",
+                video_id="vid_001",
+                series_id="series_001",
+                episode_id="ep_003",
+                start_ms=0,
+                end_ms=8000,
+                keyframe_ids=["kf_001"],
+            )
+        ],
+        [],
+        [
+            Keyframe(
+                keyframe_id="kf_001",
+                segment_id="seg_001",
+                series_id="series_001",
+                episode_id="ep_003",
+                timestamp_ms=4000,
+                image_uri=str(image_path),
+            )
+        ],
+    )
+
+    assert results[0].visual_summary == "本地 ASR 降级理解：该片段暂无可用台词。"
+    assert results[0].scene == "未知场景"
 
 
 def test_fallback_script_preserves_segment_sources():

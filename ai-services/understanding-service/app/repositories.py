@@ -557,6 +557,12 @@ class MySQLRepository:
             "script_id",
         )
 
+    def delete_observed_scripts_for_episode(self, series_id: str, episode_id: str) -> None:
+        self._delete_many_by_columns(
+            "observed_scripts",
+            {"series_id": series_id, "episode_id": episode_id},
+        )
+
     def get_observed_script(self, script_id: str) -> dict[str, Any] | None:
         return self._fetch_one("observed_scripts", "script_id", script_id)
 
@@ -564,6 +570,12 @@ class MySQLRepository:
         row = candidate.model_dump(mode="json")
         row["raw_json"] = candidate.model_dump(mode="json")
         self._upsert("highlight_candidates", row, "candidate_id")
+
+    def delete_highlight_outputs_for_episode(self, series_id: str, episode_id: str) -> None:
+        filters = {"series_id": series_id, "episode_id": episode_id}
+        self._delete_many_by_columns("highlight_event_evidence", filters)
+        self._delete_many_by_columns("highlight_events", filters)
+        self._delete_many_by_columns("highlight_candidates", filters)
 
     def save_highlight_event(self, event: HighlightEvent) -> None:
         row = event.model_dump(mode="json")
@@ -661,6 +673,13 @@ class MySQLRepository:
             cursor.execute(sql, tuple(filters.values()))
             rows = cursor.fetchall()
         return [_decode_row(row) for row in rows]
+
+    def _delete_many_by_columns(self, table: str, filters: dict[str, Any]) -> None:
+        where_clause = " AND ".join(f"`{column}` = %s" for column in filters)
+        sql = f"DELETE FROM `{table}` WHERE {where_clause}"
+        with self.connection.cursor() as cursor:
+            cursor.execute(sql, tuple(filters.values()))
+        self.connection.commit()
 
 
 def _now_iso() -> str:

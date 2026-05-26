@@ -156,5 +156,9 @@ class ObservedScript(BaseModel):
             for beat in scene.beats:
                 speaker = f"{beat.speaker}: " if beat.speaker else ""
                 lines.append(f"- {beat.type}: {speaker}{beat.clean_text or beat.content}")
+                if beat.raw_text and beat.raw_text != (beat.clean_text or beat.content):
+                    lines.append(f"  - 原始 ASR: {beat.raw_text}")
+                if beat.source_asr_refs:
+                    lines.append(f"  - ASR 引用: {', '.join(beat.source_asr_refs)}")
         lines.append("")
         return "\n".join(lines)

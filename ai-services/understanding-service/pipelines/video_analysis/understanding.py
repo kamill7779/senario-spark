@@ -22,9 +22,12 @@ VLM_PROMPT = """Return one JSON object matching this schema:
   "sound_cues": string,
   "power_dynamic": string
 }
+除 schema key 外，所有字段值必须使用简体中文输出。
+不要输出英文角色泛称；无法确认姓名时使用中文描述，例如“白衣男子”“年长妇人”。
 Use the keyframe and nearby ASR text as evidence. Preserve character continuity when the same
 person appears in adjacent segments. Separate visible evidence from inferred relationships.
-Do not invent IDs or unsupported plot facts."""
+Do not invent IDs or unsupported plot facts. 若 ASR 破碎，应结合画面和相邻台词还原角色动作、
+情绪、权力关系，但不得把无证据的剧情当作确定事实。"""
 
 
 def build_segment_understandings(
@@ -50,15 +53,22 @@ def build_segment_understandings(
         else:
             if keyframe is None:
                 raise ModelClientError(f"missing keyframe for segment {segment.segment_id}")
-            payload = client.complete_json_with_image(
-                prompt=VLM_PROMPT,
-                image_data_url=_image_data_url(Path(keyframe.image_uri)),
-                extra_payload={
-                    "segment_id": segment.segment_id,
-                    "time_range": {"start_ms": segment.start_ms, "end_ms": segment.end_ms},
-                    "dialogue_raw": dialogue,
-                },
-            )
+            try:
+                payload = client.complete_json_with_image(
+                    prompt=VLM_PROMPT,
+                    image_data_url=_image_data_url(
+                        _resolve_keyframe_path(keyframe.image_uri, settings.output_root)
+                    ),
+                    extra_payload={
+                        "segment_id": segment.segment_id,
+                        "time_range": {"start_ms": segment.start_ms, "end_ms": segment.end_ms},
+                        "dialogue_raw": dialogue,
+                    },
+                )
+            except ModelClientError as exc:
+                if not settings.allow_model_fallback:
+                    raise
+                payload = _fallback_understanding_payload(dialogue)
         results.append(
             SegmentUnderstanding.model_validate(
                 {
@@ -94,11 +104,12 @@ def _dialogue_for_segment(
 def _fallback_understanding_payload(dialogue: str) -> dict:
     conflict_markers = ("凭什么", "为什么", "滚", "住手", "不可能", "背叛")
     conflict_level = 4 if any(marker in dialogue for marker in conflict_markers) else 1
+    summary_text = dialogue.strip() or "该片段暂无可用台词。"
     return {
-        "visual_summary": "Local fallback visual observation; VLM was not configured.",
-        "scene": "unknown",
-        "main_actions": "No VLM model output available.",
-        "emotion_hint": "conflict" if conflict_level >= 3 else "neutral",
+        "visual_summary": f"本地 ASR 降级理解：{summary_text}",
+        "scene": "未知场景",
+        "main_actions": "根据 ASR 文本进行降级理解。",
+        "emotion_hint": "冲突" if conflict_level >= 3 else "中性",
         "conflict_level": conflict_level,
         "visible_characters": [],
         "character_actions": [],
@@ -112,3 +123,19 @@ def _fallback_understanding_payload(dialogue: str) -> dict:
 def _image_data_url(path: Path) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:image/jpeg;base64,{encoded}"
+
+
+def _resolve_keyframe_path(image_uri: str, output_root: Path) -> Path:
+    path = Path(image_uri)
+    if path.exists():
+        return path
+    normalized = image_uri.replace("\\", "/")
+    marker = "/outputs/"
+    if marker in normalized:
+        relative_output_path = normalized.split(marker, 1)[1]
+        for root in (output_root, Path("outputs")):
+            candidate = root.joinpath(*relative_output_path.split("/"))
+            if candidate.exists():
+                return candidate.resolve()
+        return output_root.joinpath(*relative_output_path.split("/"))
+    return path

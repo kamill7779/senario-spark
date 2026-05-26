@@ -1,6 +1,8 @@
 from app.config import Settings
 from pipelines.script_generation.generator import build_fallback_observed_script
 from pipelines.script_generation import generator
+from pipelines.highlight_extraction.agent import HIGHLIGHT_PROMPT
+from pipelines.video_analysis.understanding import VLM_PROMPT
 from schemas.script import ObservedScript
 from schemas.video import SegmentUnderstanding, TranscriptChunk, VideoSegment
 
@@ -154,9 +156,38 @@ def test_fallback_script_restores_clean_beats_from_fragmented_asr():
         "aud_series_001_ep_003_001:2",
         "aud_series_001_ep_003_001:3",
     ]
+    assert "ASR 引用: aud_series_001_ep_003_001:1" in script.to_markdown()
+    assert "原始 ASR:" in script.to_markdown()
     assert script.characters[0].canonical_name == "吕贞"
     assert script.plot_facts[0].certainty == "inferred"
     assert script.plot_facts[0].source_segment_ids == ["seg_series_001_ep_003_001"]
+
+
+def test_model_prompts_require_simplified_chinese_output():
+    assert "简体中文" in generator.SCRIPT_PROMPT
+    assert "简体中文" in HIGHLIGHT_PROMPT
+    assert "简体中文" in VLM_PROMPT
+
+
+def test_fallback_script_uses_chinese_default_copy_when_text_is_missing():
+    segment = VideoSegment(
+        segment_id="seg_series_001_ep_003_001",
+        video_id="vid_series_001_ep_003",
+        series_id="series_001",
+        episode_id="ep_003",
+        start_ms=0,
+        end_ms=8000,
+        keyframe_ids=[],
+    )
+
+    script = build_fallback_observed_script("series_001", "ep_003", [segment], [], [])
+    markdown = script.to_markdown()
+
+    assert script.title == "观测剧本 ep_003"
+    assert script.summary == "本集暂无可用台词，剧本由本地片段证据生成。"
+    assert "Observed Script" not in markdown
+    assert "Video observations" not in markdown
+    assert "Segment " not in markdown
 
 
 def test_generate_observed_script_falls_back_when_model_returns_invalid_json(monkeypatch):
@@ -204,7 +235,7 @@ def test_generate_observed_script_falls_back_when_model_returns_invalid_json(mon
 
     assert script.script_id == "script_series_001_ep_003_v1"
     assert script.uncertainties[0].field == "model_output"
-    assert "invalid model json" in script.uncertainties[0].description
+    assert script.uncertainties[0].description == "脚本模型返回的 JSON 未通过解析，已使用本地证据降级生成剧本。"
 
 
 def test_generate_observed_script_normalizes_model_evidence_refs(monkeypatch):
